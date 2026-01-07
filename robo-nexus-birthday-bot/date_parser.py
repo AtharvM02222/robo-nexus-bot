@@ -4,7 +4,7 @@ Handles flexible date format parsing and validation
 """
 import re
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
