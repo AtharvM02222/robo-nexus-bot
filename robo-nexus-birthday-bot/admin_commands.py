@@ -138,9 +138,18 @@ class AdminCommands(commands.Cog):
             guild_birthdays = []
             
             for user_id, birthday_date in all_birthdays:
-                member = interaction.guild.get_member(user_id)
-                if member:
-                    guild_birthdays.append((member, birthday_date))
+                try:
+                    # Try to fetch member from Discord API (more reliable than get_member)
+                    member = await interaction.guild.fetch_member(user_id)
+                    if member:
+                        guild_birthdays.append((member, birthday_date))
+                except discord.NotFound:
+                    # User not in this guild, skip
+                    continue
+                except Exception as e:
+                    # Log other errors but continue
+                    logger.warning(f"Error fetching member {user_id}: {e}")
+                    continue
             
             embed.add_field(
                 name="📊 Statistics",

@@ -268,14 +268,17 @@ class BirthdayCommands(commands.Cog):
             birthday_list = []
             for user_id, birthday_date in all_birthdays[:10]:  # Limit to 10 for display
                 try:
-                    user = interaction.guild.get_member(user_id)
+                    # Try to fetch member from Discord API (more reliable than get_member)
+                    user = await interaction.guild.fetch_member(user_id)
                     if user:
                         formatted_date = DateParser.format_birthday(birthday_date)
                         birthday_list.append(f"🎂 **{user.display_name}** - {formatted_date}")
-                    else:
-                        # User not in this guild, skip
-                        continue
-                except:
+                except discord.NotFound:
+                    # User not in this guild, skip
+                    continue
+                except Exception as e:
+                    # Log other errors but continue
+                    logger.warning(f"Error fetching member {user_id}: {e}")
                     continue
             
             if not birthday_list:
