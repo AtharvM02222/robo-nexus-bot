@@ -20,6 +20,14 @@ async def main():
         Config.validate()
         logger.info("Configuration validated successfully")
         
+        # Start keep-alive server for Replit
+        try:
+            from keep_alive import keep_alive
+            keep_alive()
+        except ImportError:
+            # keep_alive not available, skip (for other hosting platforms)
+            pass
+        
         # Import and create bot instance
         from bot import run_bot
         

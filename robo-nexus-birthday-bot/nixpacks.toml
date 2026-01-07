@@ -1,11 +1,14 @@
 [phases.setup]
-nixPkgs = ['python39']
+nixPkgs = ['python39', 'pip']
 
 [phases.install]
-cmds = ['pip install -r requirements.txt']
+cmds = ['pip install --upgrade pip', 'pip install -r requirements.txt']
 
 [phases.build]
-cmds = ['echo "Build complete"']
+cmds = ['echo "Build complete - Robo Nexus Birthday Bot ready"']
 
 [start]
 cmd = 'python main.py'
+
+[variables]
+PYTHONUNBUFFERED = '1'
