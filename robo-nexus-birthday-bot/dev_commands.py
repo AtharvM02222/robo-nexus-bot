@@ -366,8 +366,8 @@ class DevCommands(commands.Cog):
             )
             await interaction.edit_original_response(embed=embed)
     
-    @app_commands.command(name="bot_status", description="Check comprehensive bot status")
-    async def bot_status(self, interaction: discord.Interaction):
+    @app_commands.command(name="status", description="Check comprehensive bot status")
+    async def status(self, interaction: discord.Interaction):
         """Show detailed bot status with auto-monitoring info"""
         
         # Calculate uptime
