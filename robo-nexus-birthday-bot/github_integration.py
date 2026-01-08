@@ -20,12 +20,12 @@ class GitHubIntegration(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.github_token = os.getenv('GITHUB_TOKEN')  # Optional GitHub token
-        self.repo_owner = "atharvam682"  # Your GitHub username
+        self.repo_owner = "AtharvM02222"  # Your GitHub username
         
         # Multiple repositories to monitor
         self.repositories = [
-            "robo-nexus-bot",      # Bot code repository
-            "robo-nexus-website"   # Website repository (adjust name if different)
+            "robo-nexus-bot",           # Bot code repository
+            "Robo-Nexus-Website-Dev"    # Website repository
         ]
         
         self.last_commit_check = datetime.now()
@@ -336,14 +336,18 @@ class GitHubIntegration(commands.Cog):
         ][:25]
     
     @app_commands.command(name="recent_commits", description="Show recent commits")
-    async def recent_commits(self, interaction: discord.Interaction, count: int = 5):
+    @app_commands.describe(repository="Repository to check", count="Number of commits to show")
+    async def recent_commits(self, interaction: discord.Interaction, repository: str = None, count: int = 5):
         """Show recent commits from the repository"""
         
         await interaction.response.defer()
         
+        # Default to first repository if not specified
+        repo_name = repository or self.repositories[0]
+        
         try:
             # Get recent commits (public API, no token needed)
-            url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/commits"
+            url = f"https://api.github.com/repos/{self.repo_owner}/{repo_name}/commits"
             params = {'per_page': min(count, 10)}
             
             response = requests.get(url, params=params, timeout=10)
@@ -352,7 +356,7 @@ class GitHubIntegration(commands.Cog):
                 commits = response.json()
                 
                 embed = discord.Embed(
-                    title=f"📝 Recent Commits ({len(commits)})",
+                    title=f"📝 Recent Commits - {repo_name} ({len(commits)})",
                     color=discord.Color.blue()
                 )
                 
@@ -378,7 +382,7 @@ class GitHubIntegration(commands.Cog):
                     inline=False
                 )
                 
-                embed.set_footer(text=f"Repository: {self.repo_owner}/{self.repo_name}")
+                embed.set_footer(text=f"Repository: {self.repo_owner}/{repo_name}")
                 
                 await interaction.followup.send(embed=embed)
                 
@@ -395,15 +399,28 @@ class GitHubIntegration(commands.Cog):
                 ephemeral=True
             )
     
+    @recent_commits.autocomplete('repository')
+    async def recent_commits_repo_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for repository parameter"""
+        return [
+            app_commands.Choice(name=repo, value=repo)
+            for repo in self.repositories
+            if current.lower() in repo.lower()
+        ][:25]
+    
     @app_commands.command(name="repo_stats", description="Show repository statistics")
-    async def repo_stats(self, interaction: discord.Interaction):
+    @app_commands.describe(repository="Repository to check stats for")
+    async def repo_stats(self, interaction: discord.Interaction, repository: str = None):
         """Show GitHub repository statistics"""
         
         await interaction.response.defer()
         
+        # Default to first repository if not specified
+        repo_name = repository or self.repositories[0]
+        
         try:
             # Get repo info (public API)
-            url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}"
+            url = f"https://api.github.com/repos/{self.repo_owner}/{repo_name}"
             
             response = requests.get(url, timeout=10)
             
@@ -480,6 +497,15 @@ class GitHubIntegration(commands.Cog):
                 f"❌ Error fetching stats: {str(e)[:100]}",
                 ephemeral=True
             )
+    
+    @repo_stats.autocomplete('repository')
+    async def repo_stats_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for repository parameter"""
+        return [
+            app_commands.Choice(name=repo, value=repo)
+            for repo in self.repositories
+            if current.lower() in repo.lower()
+        ][:25]
 
 
 async def setup(bot):
