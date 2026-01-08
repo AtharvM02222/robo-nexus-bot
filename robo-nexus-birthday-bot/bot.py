@@ -51,6 +51,10 @@ class RoboNexusBirthdayBot(commands.Bot):
             await self.load_extension('commands')
             await self.load_extension('admin_commands')
             await self.load_extension('help_commands')
+            await self.load_extension('dev_commands')
+            await self.load_extension('github_integration')
+            await self.load_extension('analytics')
+            await self.load_extension('auction')
             logger.info("Command cogs loaded successfully")
             
             # Sync slash commands
@@ -189,22 +193,62 @@ class RoboNexusBirthdayBot(commands.Bot):
         logger.info("Bot is ready, birthday scheduler will start")
     
     async def on_command_error(self, ctx, error):
-        """Handle command errors"""
+        """Handle command errors with analytics tracking"""
         if isinstance(error, commands.CommandNotFound):
             # Ignore unknown commands
             return
         
         logger.error(f"Command error: {error}")
         
+        # Track error in analytics
+        analytics_cog = self.get_cog('Analytics')
+        if analytics_cog:
+            analytics_cog.track_error(error, f"Command: {ctx.command}")
+            await analytics_cog.report_error_to_dev(error, f"Command: {ctx.command}")
+        
         # Send error message to user
         try:
-            await ctx.send("❌ An error occurred while processing your command. Please try again.")
+            await ctx.send("❌ An error occurred while processing your command. The developers have been notified.")
         except:
             pass  # Channel might not be accessible
     
+    async def on_application_command_error(self, interaction: discord.Interaction, error):
+        """Handle slash command errors with analytics tracking"""
+        logger.error(f"Slash command error: {error}")
+        
+        # Track error in analytics
+        analytics_cog = self.get_cog('Analytics')
+        if analytics_cog:
+            analytics_cog.track_error(error, f"Slash command: {interaction.command}")
+            await analytics_cog.report_error_to_dev(error, f"Slash command: {interaction.command}")
+        
+        # Send error message to user
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ An error occurred while processing your command. The developers have been notified.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ An error occurred while processing your command. The developers have been notified.",
+                    ephemeral=True
+                )
+        except:
+            pass
+    
     async def on_error(self, event, *args, **kwargs):
-        """Handle general bot errors"""
+        """Handle general bot errors with analytics tracking"""
         logger.error(f"Bot error in event {event}", exc_info=True)
+        
+        # Track error in analytics
+        analytics_cog = self.get_cog('Analytics')
+        if analytics_cog:
+            import sys
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            if exc_value:
+                analytics_cog.track_error(exc_value, f"Event: {event}")
+                await analytics_cog.report_error_to_dev(exc_value, f"Event: {event}")
     
     async def close(self):
         """Clean shutdown of the bot"""
