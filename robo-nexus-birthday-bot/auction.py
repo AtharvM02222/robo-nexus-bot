@@ -113,6 +113,21 @@ class AuctionSystem(commands.Cog):
         """Check if user has admin permissions"""
         return member.guild_permissions.administrator or member.guild_permissions.manage_guild
     
+    def can_create_auction(self, member: discord.Member) -> bool:
+        """Check if user can create auctions (admin OR has seller role)"""
+        # Admins can always create
+        if self.is_admin(member):
+            return True
+        
+        # Check for seller roles (case-insensitive)
+        seller_role_names = ['seller', 'auction', 'auctioneer', 'sales', 'vendor', 'shop']
+        
+        for role in member.roles:
+            if role.name.lower() in seller_role_names:
+                return True
+        
+        return False
+    
     async def get_auction_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
         """Get the auction channel"""
         if self.auction_channel_id:
@@ -337,9 +352,9 @@ class AuctionSystem(commands.Cog):
     ):
         """Create a new auction listing"""
         
-        if not self.is_admin(interaction.user):
+        if not self.can_create_auction(interaction.user):
             await interaction.response.send_message(
-                "❌ Only admins can create auction listings.",
+                "❌ You need a **Seller** role or admin permissions to create auctions.",
                 ephemeral=True
             )
             return
@@ -776,54 +791,67 @@ class AuctionSystem(commands.Cog):
             await interaction.followup.send("❌ Error loading your bids.", ephemeral=True)
 
     
-    @app_commands.command(name="auction_close", description="[ADMIN] Close an auction early")
+    @app_commands.command(name="auction_close", description="Close an auction early")
     @app_commands.describe(auction_id="The auction ID to close")
     async def auction_close(self, interaction: discord.Interaction, auction_id: int):
         """Close an auction early"""
         
-        if not self.is_admin(interaction.user):
-            await interaction.response.send_message("❌ Only admins can close auctions.", ephemeral=True)
+        auction = self.auctions.get(auction_id)
+        
+        if not auction:
+            await interaction.response.send_message(f"❌ Auction #{auction_id} not found.", ephemeral=True)
+            return
+        
+        # Check permissions: Admin can close any, Seller can only close their own
+        is_owner = auction.seller_id == interaction.user.id
+        is_admin = self.is_admin(interaction.user)
+        
+        if not is_admin and not is_owner:
+            await interaction.response.send_message(
+                "❌ You can only close your own auctions.",
+                ephemeral=True
+            )
+            return
+        
+        if auction.status != "active":
+            await interaction.response.send_message(f"❌ Auction is already {auction.status}.", ephemeral=True)
             return
         
         await interaction.response.defer()
         
         try:
-            auction = self.auctions.get(auction_id)
-            
-            if not auction:
-                await interaction.followup.send(f"❌ Auction #{auction_id} not found.", ephemeral=True)
-                return
-            
-            if auction.status != "active":
-                await interaction.followup.send(f"❌ Auction is already {auction.status}.", ephemeral=True)
-                return
-            
-            await self.close_auction(auction, "admin_closed")
-            
+            await self.close_auction(auction, "seller_closed" if is_owner else "admin_closed")
             await interaction.followup.send(f"✅ Auction #{auction_id} has been closed.")
             
         except Exception as e:
             logger.error(f"Error closing auction: {e}")
             await interaction.followup.send("❌ Error closing auction.", ephemeral=True)
     
-    @app_commands.command(name="auction_delete", description="[ADMIN] Delete an auction listing")
+    @app_commands.command(name="auction_delete", description="Delete an auction listing")
     @app_commands.describe(auction_id="The auction ID to delete")
     async def auction_delete(self, interaction: discord.Interaction, auction_id: int):
         """Delete an auction completely"""
         
-        if not self.is_admin(interaction.user):
-            await interaction.response.send_message("❌ Only admins can delete auctions.", ephemeral=True)
+        auction = self.auctions.get(auction_id)
+        
+        if not auction:
+            await interaction.response.send_message(f"❌ Auction #{auction_id} not found.", ephemeral=True)
+            return
+        
+        # Check permissions: Admin can delete any, Seller can only delete their own
+        is_owner = auction.seller_id == interaction.user.id
+        is_admin = self.is_admin(interaction.user)
+        
+        if not is_admin and not is_owner:
+            await interaction.response.send_message(
+                "❌ You can only delete your own auctions.",
+                ephemeral=True
+            )
             return
         
         await interaction.response.defer()
         
         try:
-            auction = self.auctions.get(auction_id)
-            
-            if not auction:
-                await interaction.followup.send(f"❌ Auction #{auction_id} not found.", ephemeral=True)
-                return
-            
             # Delete the auction message if it exists
             if auction.message_id and auction.channel_id:
                 try:
