@@ -177,6 +177,85 @@ class AdminCommands(commands.Cog):
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=error_embed)
+    
+    @app_commands.command(name="test_birthday", description="[ADMIN] Manually trigger birthday check for today")
+    @app_commands.default_permissions(administrator=True)
+    async def test_birthday(self, interaction: discord.Interaction):
+        """Manually trigger birthday announcements for today"""
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.response.send_message(
+                    "❌ You need Administrator permissions to use this command.",
+                    ephemeral=True
+                )
+                return
+            
+            await interaction.response.defer()
+            
+            # Get today's birthdays
+            todays_birthdays = await self.db.get_todays_birthdays()
+            
+            if not todays_birthdays:
+                embed = discord.Embed(
+                    title="🎂 No Birthdays Today",
+                    description="There are no registered birthdays for today.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed)
+                return
+            
+            # Get birthday channel
+            channel_id = await self.db.get_birthday_channel(interaction.guild.id)
+            
+            if not channel_id:
+                await interaction.followup.send(
+                    "❌ Birthday channel not configured. Use `/set_birthday_channel` first.",
+                    ephemeral=True
+                )
+                return
+            
+            channel = interaction.guild.get_channel(channel_id)
+            if not channel:
+                await interaction.followup.send(
+                    "❌ Birthday channel not found. Please reconfigure with `/set_birthday_channel`.",
+                    ephemeral=True
+                )
+                return
+            
+            # Send birthday messages
+            sent_count = 0
+            for user_id, birthday_date in todays_birthdays:
+                try:
+                    member = await interaction.guild.fetch_member(user_id)
+                    if member:
+                        message = f"🎉🎂 **Happy Birthday {member.mention}!** 🎂🎉\nEveryone wish them a fantastic day! 🎈🎁"
+                        await channel.send(message)
+                        sent_count += 1
+                except discord.NotFound:
+                    continue
+                except Exception as e:
+                    logger.error(f"Error sending birthday message for {user_id}: {e}")
+            
+            embed = discord.Embed(
+                title="✅ Birthday Check Complete",
+                description=f"Sent **{sent_count}** birthday announcement(s) to {channel.mention}",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="🎂 Today's Birthdays",
+                value=f"Found **{len(todays_birthdays)}** birthday(s)",
+                inline=True
+            )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Manual birthday check triggered by {interaction.user}, sent {sent_count} messages")
+            
+        except Exception as e:
+            logger.error(f"Error in test_birthday: {e}")
+            await interaction.followup.send(
+                f"❌ Error running birthday check: {str(e)[:100]}",
+                ephemeral=True
+            )
 
 async def setup(bot):
     """Add the AdminCommands cog to the bot"""
