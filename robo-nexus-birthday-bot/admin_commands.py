@@ -228,9 +228,20 @@ class AdminCommands(commands.Cog):
                 try:
                     member = await interaction.guild.fetch_member(user_id)
                     if member:
-                        message = f"🎉🎂 **Happy Birthday {member.mention}!** 🎂🎉\nEveryone wish them a fantastic day! 🎈🎁"
+                        # Send to birthday channel with @everyone
+                        message = f"@everyone\n\n🎉🎂 **HAPPY BIRTHDAY {member.mention}!** 🎂🎉\n\nEveryone wish them a fantastic day! 🎈🎁🥳"
                         await channel.send(message)
                         sent_count += 1
+                        
+                        # Try to send to announcements channel too
+                        for ann_channel in interaction.guild.text_channels:
+                            if 'announcement' in ann_channel.name.lower() and ann_channel.id != channel.id:
+                                try:
+                                    ann_msg = f"@everyone\n\n🎂 **Birthday Alert!** 🎂\n\nToday is **{member.display_name}**'s birthday! Head over to {channel.mention} to wish them! 🎉"
+                                    await ann_channel.send(ann_msg)
+                                except:
+                                    pass
+                                break
                 except discord.NotFound:
                     continue
                 except Exception as e:

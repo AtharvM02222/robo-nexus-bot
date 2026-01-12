@@ -46,7 +46,8 @@ fi
 
 echo ""
 echo "📥 Step 2: Pulling latest code from GitHub..."
-git pull origin main
+git fetch origin main
+git reset --hard origin/main
 
 echo ""
 echo "🔄 Step 3: Restoring data..."

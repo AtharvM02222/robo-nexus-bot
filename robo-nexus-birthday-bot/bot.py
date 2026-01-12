@@ -141,7 +141,7 @@ class RoboNexusBirthdayBot(commands.Bot):
     
     async def send_birthday_messages(self, guild: discord.Guild, birthdays: list):
         """
-        Send birthday messages to the configured channel in a guild
+        Send birthday messages to the configured channel and announcements
         
         Args:
             guild: Discord guild object
@@ -155,25 +155,44 @@ class RoboNexusBirthdayBot(commands.Bot):
                 logger.warning(f"No birthday channel configured for guild {guild.name}")
                 return
             
-            # Get the channel
-            channel = guild.get_channel(channel_id)
-            if not channel:
+            # Get the birthday channel
+            birthday_channel = guild.get_channel(channel_id)
+            if not birthday_channel:
                 logger.error(f"Birthday channel {channel_id} not found in guild {guild.name}")
                 return
+            
+            # Try to find announcements channel
+            announcements_channel = None
+            for channel in guild.text_channels:
+                if 'announcement' in channel.name.lower() or 'announce' in channel.name.lower():
+                    announcements_channel = channel
+                    break
             
             # Send birthday message for each user
             for user_id, birthday_date in birthdays:
                 try:
-                    # Get the user from the guild
-                    member = guild.get_member(user_id)
+                    # Get the user from the guild (use fetch for reliability)
+                    try:
+                        member = await guild.fetch_member(user_id)
+                    except:
+                        member = guild.get_member(user_id)
                     
                     if member:
-                        # Create birthday message with Robo Nexus format
-                        message = f"Hey Robo Nexus, it's {member.mention}'s birthday today! 🎉🎂"
+                        # Create birthday message with @everyone tag
+                        birthday_message = f"@everyone\n\n🎉🎂 **HAPPY BIRTHDAY {member.mention}!** 🎂🎉\n\nEveryone wish them a fantastic day! 🎈🎁🥳"
                         
-                        # Send the message
-                        await channel.send(message)
+                        # Send to birthday channel
+                        await birthday_channel.send(birthday_message)
                         logger.info(f"Birthday message sent for {member.display_name} in {guild.name}")
+                        
+                        # Also send to announcements channel if found
+                        if announcements_channel and announcements_channel.id != birthday_channel.id:
+                            try:
+                                announcement_msg = f"@everyone\n\n🎂 **Birthday Alert!** 🎂\n\nToday is **{member.display_name}**'s birthday! Head over to {birthday_channel.mention} to wish them! 🎉"
+                                await announcements_channel.send(announcement_msg)
+                                logger.info(f"Birthday announcement sent to {announcements_channel.name}")
+                            except Exception as e:
+                                logger.warning(f"Could not send to announcements channel: {e}")
                         
                         # Add a small delay between messages to avoid rate limits
                         await asyncio.sleep(1)
