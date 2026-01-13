@@ -1,0 +1,12 @@
+# Simple restore commands (run after GitHub update):
+
+cd /Users/satyendra/Desktop/Atharv/GIthub/robo-nexus-bot/robo-nexus-birthday-bot
+cp backup_20260113_210856/birthdays.db . 2>/dev/null && echo "✅ Restored birthdays.db"
+cp backup_20260113_210856/user_profiles.json . 2>/dev/null && echo "✅ Restored user_profiles.json"  
+cp backup_20260113_210856/welcome_data.json . 2>/dev/null && echo "✅ Restored welcome_data.json"
+cp backup_20260113_210856/analytics.json . 2>/dev/null && echo "✅ Restored analytics.json"
+cp backup_20260113_210856/auction_data.json . 2>/dev/null && echo "✅ Restored auction_data.json"
+cp backup_20260113_210856/deploy_info.json . 2>/dev/null && echo "✅ Restored deploy_info.json"
+
+# Then start the bot:
+python main.py

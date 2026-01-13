@@ -48,7 +48,12 @@ class HelpCommands(commands.Cog):
             if interaction.user.guild_permissions.administrator:
                 admin_commands = [
                     "**`/set_birthday_channel`** - Set the birthday announcement channel",
-                    "**`/birthday_config`** - View current bot configuration"
+                    "**`/birthday_config`** - View current bot configuration",
+                    "**`/set_welcome_channel`** - Set welcome notifications channel",
+                    "**`/set_self_roles_channel`** - Set self-roles channel for new members",
+                    "**`/welcome_config`** - View welcome system configuration",
+                    "**`/view_profile`** - View a user's complete profile",
+                    "**`/manual_verify`** - Manually verify a user with name, class, and email"
                 ]
                 
                 embed.add_field(
@@ -68,6 +73,13 @@ class HelpCommands(commands.Cog):
             embed.add_field(
                 name="🎉 How Birthday Announcements Work",
                 value="• Register your birthday using `/register_birthday`\n• The bot checks daily at 9:00 AM for birthdays\n• Birthday messages are sent to the configured channel\n• Format: 'Hey Robo Nexus, it's @user's birthday today! 🎉'",
+                inline=False
+            )
+            
+            # Welcome system info
+            embed.add_field(
+                name="👋 Enhanced Welcome System",
+                value="• New members get limited access initially\n• Bot collects name, class, Gmail, and social links\n• 3-stage verification process via DM\n• Auto-assigns class roles (6, 7, 8, 9, 10, 11, 12)\n• Stores complete member profiles\n• Full server access after verification",
                 inline=False
             )
             

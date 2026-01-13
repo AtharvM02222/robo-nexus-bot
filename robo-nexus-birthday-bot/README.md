@@ -11,7 +11,12 @@ This bot is designed for Railway deployment and runs 24/7 without requiring your
 - 🎂 Birthday registration with flexible date formats
 - 🎉 Automatic daily birthday notifications at 9:00 AM
 - 📅 Birthday lookup and management commands
-- 🔧 Admin configuration for birthday channels
+- 👋 **Enhanced Welcome System with 3-stage verification**
+- 📧 **Gmail collection for team communications**
+- 🔗 **Social media links collection (GitHub, LinkedIn, YouTube, Spotify)**
+- 🎓 **Smart class role assignment (6, 7, 8, 9, 10, 11, 12)**
+- 👤 **Complete member profile storage and management**
+- 🔧 Admin configuration for birthday and welcome channels
 - 💾 Persistent SQLite database storage
 - ☁️ Railway cloud deployment ready
 - 🤖 Administrator permissions for full functionality
@@ -55,6 +60,11 @@ python main.py
 ### ⚙️ **Admin Commands**
 - `/set_birthday_channel` - Set birthday announcement channel
 - `/birthday_config` - View bot configuration
+- `/set_welcome_channel` - Set welcome notifications channel
+- `/set_self_roles_channel` - Set self-roles channel for new members
+- `/welcome_config` - View welcome system configuration
+- `/view_profile` - View a user's complete profile
+- `/manual_verify` - Manually verify a user with name, class, and email
 
 ## 📅 Supported Date Formats
 
@@ -65,10 +75,21 @@ python main.py
 
 ## 🎉 How It Works
 
+### Birthday System
 1. **Setup:** Admin uses `/set_birthday_channel` to configure announcement channel
 2. **Registration:** Users register birthdays with `/register_birthday`
 3. **Daily Check:** Bot automatically checks for birthdays at 9:00 AM
 4. **Announcements:** Sends messages like: "Hey Robo Nexus, it's @username's birthday today! 🎉"
+
+### Welcome & Profile System
+1. **New Member Joins:** User gets access only to self-roles channel
+2. **Stage 1 - Basic Info:** Bot DMs asking for name and class (6-12)
+3. **Stage 2 - Gmail:** Collects Gmail address for team communications
+4. **Stage 3 - Social Links:** Optional GitHub, LinkedIn, YouTube, Spotify links
+5. **Smart Recognition:** Understands "Class 10", "10th grade", "ten", etc.
+6. **Profile Storage:** Complete member profiles saved for team management
+7. **Auto-Role Assignment:** Assigns appropriate class role automatically
+8. **Full Access:** User gets access to all server channels
 
 ## 🔧 Configuration
 
