@@ -252,39 +252,46 @@ class WelcomeSystem(commands.Cog):
             await self.send_welcome_in_channel(member)
     
     async def send_welcome_in_channel(self, member: discord.Member):
-        """Send welcome message in self-roles channel if DM fails"""
+        """Send welcome message in self-roles channel"""
         try:
             if not self.self_roles_channel_id:
+                logger.warning("Self-roles channel not configured, cannot send welcome message")
                 return
             
             channel = member.guild.get_channel(self.self_roles_channel_id)
             if not channel:
+                logger.error(f"Self-roles channel {self.self_roles_channel_id} not found")
                 return
             
             embed = discord.Embed(
                 title="🎉 Welcome to Robo Nexus!",
-                description=f"Hi {member.mention}! Since I couldn't DM you, here's your setup info:",
-                color=discord.Color.orange()
+                description=f"Hi {member.mention}! Welcome to our robotics community!",
+                color=discord.Color.green()
             )
             
             embed.add_field(
-                name="📝 Step 1: Please Reply With",
-                value="**Your Name and Class**\n\nExample: `John Smith, Class 10`",
+                name="📝 Step 1: Basic Info",
+                value="To get started, please reply in this channel with:\n\n**1. Your Name**\n**2. Your Class/Grade** (6, 7, 8, 9, 10, 11, or 12)",
                 inline=False
             )
             
-            embed.set_footer(text="Reply in this channel to start verification!")
+            embed.add_field(
+                name="💡 Example Response",
+                value="```\nJohn Smith, Class 10\n```\nor simply:\n```\nJohn Smith 10th grade\n```",
+                inline=False
+            )
             
-            msg = await channel.send(embed=embed, delete_after=300)  # Delete after 5 minutes
+            embed.add_field(
+                name="🔄 What's Next?",
+                value="After this, I'll ask for:\n• Your Gmail address\n• Social media links (optional)",
+                inline=False
+            )
             
-            # Store user for tracking
-            self.pending_users[member.id] = {
-                "member": member,
-                "stage": self.STAGE_NAME_CLASS,
-                "message_id": msg.id,
-                "channel_id": channel.id,
-                "profile": {}
-            }
+            embed.set_footer(text="🔒 Reply in this channel to complete verification!")
+            embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+            
+            await channel.send(embed=embed)
+            logger.info(f"Sent welcome message in #self-roles for {member.display_name}")
             
         except Exception as e:
             logger.error(f"Error sending welcome in channel: {e}")
@@ -359,8 +366,8 @@ class WelcomeSystem(commands.Cog):
         try:
             logger.info(f"New member joined: {member.display_name} ({member.id})")
             
-            # Send welcome DM
-            await self.send_welcome_dm(member)
+            # Send welcome message in self-roles channel
+            await self.send_welcome_in_channel(member)
             
             # Store user as pending
             self.pending_users[member.id] = {
