@@ -857,6 +857,60 @@ class WelcomeSystem(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
+    @app_commands.command(name="check_intents", description="[ADMIN] Check if member intents are enabled")
+    @app_commands.default_permissions(administrator=True)
+    async def check_intents(self, interaction: discord.Interaction):
+        """Check if member intents are properly enabled"""
+        
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Administrator permissions required.", ephemeral=True)
+            return
+        
+        embed = discord.Embed(
+            title="🔍 Bot Intents Status",
+            color=discord.Color.blue()
+        )
+        
+        # Check intents
+        intents = self.bot.intents
+        
+        embed.add_field(
+            name="👥 Members Intent",
+            value="✅ Enabled" if intents.members else "❌ DISABLED",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="💬 Message Content",
+            value="✅ Enabled" if intents.message_content else "❌ DISABLED",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🏰 Guilds",
+            value="✅ Enabled" if intents.guilds else "❌ DISABLED",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Guild Members",
+            value=f"Can see {interaction.guild.member_count} members",
+            inline=False
+        )
+        
+        # Check if on_member_join is registered
+        listeners = [listener.__name__ for listener in self.bot.extra_events.get('on_member_join', [])]
+        
+        embed.add_field(
+            name="🎧 on_member_join Listeners",
+            value=f"✅ {len(listeners)} registered: {', '.join(listeners) if listeners else 'None'}" if listeners else "❌ No listeners registered",
+            inline=False
+        )
+        
+        embed.set_footer(text="If Members Intent is disabled, the bot won't detect new members!")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
     @app_commands.command(name="manual_verify", description="[ADMIN] Manually verify a user")
     @app_commands.describe(
         user="User to verify",

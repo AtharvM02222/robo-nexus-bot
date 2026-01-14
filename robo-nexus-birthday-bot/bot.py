@@ -25,6 +25,7 @@ class RoboNexusBirthdayBot(commands.Bot):
         intents.message_content = True
         intents.guilds = True
         intents.guild_messages = True
+        intents.members = True  # Required to detect member joins!
         
         # Initialize bot with proper settings
         super().__init__(
