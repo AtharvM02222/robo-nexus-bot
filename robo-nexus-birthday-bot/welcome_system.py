@@ -36,6 +36,7 @@ class WelcomeSystem(commands.Cog):
         # Verification stages
         self.STAGE_NAME_CLASS = "name_class"
         self.STAGE_EMAIL = "email"
+        self.STAGE_PHONE = "phone"
         self.STAGE_LINKS = "links"
         self.STAGE_COMPLETE = "complete"
         
@@ -85,6 +86,10 @@ class WelcomeSystem(commands.Cog):
         if not email:
             return False
         
+        # Allow skip keywords
+        if email.lower().strip() in ['none', 'no', 'skip', 'n/a', 'na']:
+            return True
+        
         email = email.lower().strip()
         
         # Check if it's a Gmail address
@@ -94,6 +99,42 @@ class WelcomeSystem(commands.Cog):
         # Basic email format validation
         pattern = r'^[a-zA-Z0-9._%+-]+@gmail\.com$'
         return bool(re.match(pattern, email))
+    
+    def validate_phone(self, phone: str) -> Optional[str]:
+        """
+        Validate and format phone number
+        Returns formatted number or None if invalid
+        Accepts skip keywords
+        """
+        if not phone:
+            return None
+        
+        phone = phone.strip()
+        
+        # Allow skip keywords
+        if phone.lower() in ['none', 'no', 'skip', 'n/a', 'na']:
+            return None
+        
+        # Remove common formatting characters
+        cleaned = re.sub(r'[\s\-\(\)\+]', '', phone)
+        
+        # Check if it's all digits (after removing +)
+        if cleaned.startswith('+'):
+            cleaned = cleaned[1:]
+        
+        if not cleaned.isdigit():
+            return None
+        
+        # Indian phone numbers: 10 digits or with country code (91)
+        if len(cleaned) == 10:
+            return f"+91{cleaned}"
+        elif len(cleaned) == 12 and cleaned.startswith('91'):
+            return f"+{cleaned}"
+        elif len(cleaned) >= 10:
+            # International or other format
+            return f"+{cleaned}"
+        
+        return None
     
     def validate_social_links(self, links_text: str) -> Dict[str, str]:
         """
@@ -313,14 +354,14 @@ class WelcomeSystem(commands.Cog):
         """Send request for Gmail address - Stage 2"""
         try:
             embed = discord.Embed(
-                title="📧 Step 2: Gmail Address",
+                title="📧 Step 2: Gmail Address (Optional)",
                 description=f"Great! Welcome **{name}** from Class {class_num}!",
                 color=discord.Color.blue()
             )
             
             embed.add_field(
                 name="📮 Please provide your Gmail address",
-                value="We need your Gmail for:\n• Team communications\n• Project updates\n• Important announcements",
+                value="We use Gmail for:\n• Team communications\n• Project updates\n• Important announcements",
                 inline=False
             )
             
@@ -331,22 +372,58 @@ class WelcomeSystem(commands.Cog):
             )
             
             embed.add_field(
-                name="🔒 Privacy",
-                value="Your email will only be used for Robo Nexus activities and won't be shared externally.",
+                name="⏭️ Skip This Step",
+                value="Type `skip` or `none` if you don't want to share your email.",
                 inline=False
             )
+            
+            embed.set_footer(text="🔒 Your email is optional and kept private")
             
             await message.reply(embed=embed)
             
         except Exception as e:
             logger.error(f"Error sending email request: {e}")
     
-    async def send_links_request(self, message: discord.Message, email: str):
-        """Send request for social media links - Stage 3"""
+    async def send_phone_request(self, message: discord.Message):
+        """Send request for phone number - Stage 3"""
         try:
             embed = discord.Embed(
-                title="🔗 Step 3: Social Media Links (Optional)",
-                description="Almost done! Please share your social media profiles:",
+                title="📱 Step 3: Phone Number (Optional)",
+                description="Almost there! Please share your phone number:",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📞 Why we need it",
+                value="• Emergency contact\n• Team coordination\n• Event notifications",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="💡 Example",
+                value="`9876543210` or `+91 98765 43210`",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⏭️ Skip This Step",
+                value="Type `skip` or `none` if you don't want to share your number.",
+                inline=False
+            )
+            
+            embed.set_footer(text="🔒 Your number is optional and kept private")
+            
+            await message.reply(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error sending phone request: {e}")
+    
+    async def send_links_request(self, message: discord.Message):
+        """Send request for social media links - Stage 4"""
+        try:
+            embed = discord.Embed(
+                title="🔗 Step 4: Social Media Links (Optional)",
+                description="Last step! Please share your social media profiles:",
                 color=discord.Color.purple()
             )
             
@@ -458,6 +535,9 @@ class WelcomeSystem(commands.Cog):
                 
             elif current_stage == self.STAGE_EMAIL:
                 await self.process_email_stage(message, user_input)
+            
+            elif current_stage == self.STAGE_PHONE:
+                await self.process_phone_stage(message, user_input)
                 
             elif current_stage == self.STAGE_LINKS:
                 await self.process_links_stage(message, user_input)
@@ -540,38 +620,87 @@ class WelcomeSystem(commands.Cog):
             member = message.author
             email = user_input.strip()
             
+            # Check if user wants to skip
+            if email.lower() in ['none', 'no', 'skip', 'n/a', 'na']:
+                # Skip email, move to phone stage
+                self.pending_users[member.id]["profile"]["email"] = None
+                self.pending_users[member.id]["stage"] = self.STAGE_PHONE
+                
+                # Request phone number
+                await self.send_phone_request(message)
+                return
+            
             if not self.validate_email(email):
                 embed = discord.Embed(
                     title="❌ Invalid Gmail Address",
-                    description="Please provide a valid Gmail address.",
+                    description="Please provide a valid Gmail address or type `skip` to skip this step.",
                     color=discord.Color.red()
                 )
                 embed.add_field(
                     name="📧 Requirements",
-                    value="• Must be a Gmail address (@gmail.com)\n• Example: `john.smith@gmail.com`",
-                    inline=False
-                )
-                embed.add_field(
-                    name="💡 Why Gmail?",
-                    value="We use Gmail for team communications and Google Workspace integration.",
+                    value="• Must be a Gmail address (@gmail.com)\n• Example: `john.smith@gmail.com`\n• Or type: `skip`",
                     inline=False
                 )
                 
                 await message.reply(embed=embed, delete_after=60)
                 return
             
-            # Store email, move to links stage
+            # Store email, move to phone stage
             self.pending_users[member.id]["profile"]["email"] = email
-            self.pending_users[member.id]["stage"] = self.STAGE_LINKS
+            self.pending_users[member.id]["stage"] = self.STAGE_PHONE
             
-            # Request social links
-            await self.send_links_request(message, email)
+            # Request phone number
+            await self.send_phone_request(message)
             
         except Exception as e:
             logger.error(f"Error processing email stage: {e}")
     
+    async def process_phone_stage(self, message: discord.Message, user_input: str):
+        """Process Stage 3: Phone Number"""
+        try:
+            member = message.author
+            phone_input = user_input.strip()
+            
+            # Check if user wants to skip
+            if phone_input.lower() in ['none', 'no', 'skip', 'n/a', 'na']:
+                # Skip phone, move to links stage
+                self.pending_users[member.id]["profile"]["phone"] = None
+                self.pending_users[member.id]["stage"] = self.STAGE_LINKS
+                
+                # Request social links
+                await self.send_links_request(message)
+                return
+            
+            # Validate phone number
+            formatted_phone = self.validate_phone(phone_input)
+            
+            if not formatted_phone:
+                embed = discord.Embed(
+                    title="❌ Invalid Phone Number",
+                    description="Please provide a valid phone number or type `skip` to skip this step.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="📱 Requirements",
+                    value="• 10 digits for Indian numbers\n• Example: `9876543210` or `+91 98765 43210`\n• Or type: `skip`",
+                    inline=False
+                )
+                
+                await message.reply(embed=embed, delete_after=60)
+                return
+            
+            # Store phone, move to links stage
+            self.pending_users[member.id]["profile"]["phone"] = formatted_phone
+            self.pending_users[member.id]["stage"] = self.STAGE_LINKS
+            
+            # Request social links
+            await self.send_links_request(message)
+            
+        except Exception as e:
+            logger.error(f"Error processing phone stage: {e}")
+    
     async def process_links_stage(self, message: discord.Message, user_input: str):
-        """Process Stage 3: Social Links"""
+        """Process Stage 4: Social Links"""
         try:
             member = message.author
             
@@ -597,7 +726,8 @@ class WelcomeSystem(commands.Cog):
             
             name = profile["name"]
             class_number = profile["class"]
-            email = profile["email"]
+            email = profile.get("email")
+            phone = profile.get("phone")
             social_links = profile.get("social_links", {})
             
             # Assign the class role
@@ -609,6 +739,7 @@ class WelcomeSystem(commands.Cog):
                     "name": name,
                     "class": class_number,
                     "email": email,
+                    "phone": phone,
                     "social_links": social_links,
                     "discord_id": member.id,
                     "discord_username": str(member),
@@ -629,9 +760,15 @@ class WelcomeSystem(commands.Cog):
                     color=discord.Color.green()
                 )
                 
+                profile_text = f"**Name:** {name}\n**Class:** {class_number}"
+                if email:
+                    profile_text += f"\n**Email:** {email}"
+                if phone:
+                    profile_text += f"\n**Phone:** {phone}"
+                
                 embed.add_field(
                     name="🎓 Profile Summary",
-                    value=f"**Name:** {name}\n**Class:** {class_number}\n**Email:** {email}",
+                    value=profile_text,
                     inline=False
                 )
                 
@@ -666,11 +803,20 @@ class WelcomeSystem(commands.Cog):
                             description=f"**{name}** (Class {class_number}) is now fully set up!",
                             color=discord.Color.green()
                         )
-                        welcome_embed.add_field(
-                            name="📧 Contact",
-                            value=email,
-                            inline=True
-                        )
+                        
+                        contact_info = []
+                        if email:
+                            contact_info.append(f"📧 {email}")
+                        if phone:
+                            contact_info.append(f"📱 {phone}")
+                        
+                        if contact_info:
+                            welcome_embed.add_field(
+                                name="📞 Contact",
+                                value="\n".join(contact_info),
+                                inline=True
+                            )
+                        
                         if social_links:
                             welcome_embed.add_field(
                                 name="🔗 Links",
@@ -857,9 +1003,28 @@ class WelcomeSystem(commands.Cog):
         
         embed.add_field(
             name="🎓 Basic Info",
-            value=f"**Class:** {profile['class']}\n**Email:** {profile['email']}\n**Discord:** {user.mention}",
+            value=f"**Class:** {profile['class']}\n**Email:** {profile.get('email') or 'Not provided'}\n**Phone:** {profile.get('phone') or 'Not provided'}\n**Discord:** {user.mention}",
             inline=False
         )
+        
+        # Check for birthday
+        try:
+            birthday = await self.bot.db_manager.get_birthday(user.id)
+            if birthday:
+                birthday_str = birthday.strftime("%B %d")
+                embed.add_field(
+                    name="🎂 Birthday",
+                    value=birthday_str,
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="🎂 Birthday",
+                    value="Not registered",
+                    inline=True
+                )
+        except:
+            pass
         
         if profile.get('social_links'):
             links_text = []
@@ -943,6 +1108,7 @@ class WelcomeSystem(commands.Cog):
         name="New name (leave empty to keep current)",
         class_number="New class (leave empty to keep current)",
         email="New email (leave empty to keep current)",
+        phone="New phone number (leave empty to keep current)",
         social_links="Social links to ADD (will merge with existing links)"
     )
     @app_commands.default_permissions(administrator=True)
@@ -953,6 +1119,7 @@ class WelcomeSystem(commands.Cog):
         name: str = None,
         class_number: int = None,
         email: str = None,
+        phone: str = None,
         social_links: str = None
     ):
         """Update an existing user's profile"""
@@ -1013,12 +1180,23 @@ class WelcomeSystem(commands.Cog):
         # Update email
         if email:
             if not self.validate_email(email):
-                await interaction.followup.send("❌ Please provide a valid Gmail address.", ephemeral=True)
+                await interaction.followup.send("❌ Please provide a valid Gmail address or leave empty.", ephemeral=True)
                 return
             
-            old_email = profile['email']
+            old_email = profile.get('email', 'Not provided')
             profile['email'] = email
             changes.append(f"**Email:** {old_email} → {email}")
+        
+        # Update phone
+        if phone:
+            formatted_phone = self.validate_phone(phone)
+            if not formatted_phone:
+                await interaction.followup.send("❌ Please provide a valid phone number.", ephemeral=True)
+                return
+            
+            old_phone = profile.get('phone', 'Not provided')
+            profile['phone'] = formatted_phone
+            changes.append(f"**Phone:** {old_phone} → {formatted_phone}")
         
         # Add/update social links
         if social_links:
@@ -1064,7 +1242,7 @@ class WelcomeSystem(commands.Cog):
         
         embed.add_field(
             name="👤 Current Profile",
-            value=f"**Name:** {profile['name']}\n**Class:** {profile['class']}\n**Email:** {profile['email']}",
+            value=f"**Name:** {profile['name']}\n**Class:** {profile['class']}\n**Email:** {profile.get('email') or 'Not provided'}\n**Phone:** {profile.get('phone') or 'Not provided'}",
             inline=False
         )
         
@@ -1085,12 +1263,108 @@ class WelcomeSystem(commands.Cog):
         await interaction.followup.send(embed=embed)
         logger.info(f"Profile updated for {user.display_name} by {interaction.user.display_name}: {len(changes)} changes")
     
+    @app_commands.command(name="export_profiles", description="[ADMIN] Export all user profiles to CSV")
+    @app_commands.default_permissions(administrator=True)
+    async def export_profiles(self, interaction: discord.Interaction):
+        """Export all user profiles to a CSV file"""
+        
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Administrator permissions required.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        try:
+            import csv
+            import io
+            
+            if not self.user_profiles:
+                await interaction.followup.send("❌ No profiles to export.", ephemeral=True)
+                return
+            
+            # Create CSV in memory
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # Write header
+            writer.writerow([
+                'Name', 'Class', 'Email', 'Phone', 'Birthday',
+                'Discord Username', 'Discord ID', 'Joined At', 'Verified At',
+                'GitHub', 'LinkedIn', 'YouTube', 'Spotify', 'Website'
+            ])
+            
+            # Write data
+            for user_id, profile in self.user_profiles.items():
+                # Get birthday if registered
+                birthday_str = "Not registered"
+                try:
+                    birthday = await self.bot.db_manager.get_birthday(int(user_id))
+                    if birthday:
+                        birthday_str = birthday.strftime("%B %d")
+                except:
+                    pass
+                
+                # Get social links
+                social_links = profile.get('social_links', {})
+                github = social_links.get('github', '')
+                linkedin = social_links.get('linkedin', '')
+                youtube = social_links.get('youtube', '')
+                spotify = social_links.get('spotify', '')
+                website = social_links.get('website', '')
+                
+                writer.writerow([
+                    profile.get('name', ''),
+                    profile.get('class', ''),
+                    profile.get('email', ''),
+                    profile.get('phone', ''),
+                    birthday_str,
+                    profile.get('discord_username', ''),
+                    profile.get('discord_id', ''),
+                    profile.get('joined_at', ''),
+                    profile.get('verified_at', ''),
+                    github,
+                    linkedin,
+                    youtube,
+                    spotify,
+                    website
+                ])
+            
+            # Convert to bytes
+            output.seek(0)
+            file_content = output.getvalue().encode('utf-8')
+            
+            # Create Discord file
+            from datetime import datetime
+            filename = f"robo_nexus_profiles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            file = discord.File(io.BytesIO(file_content), filename=filename)
+            
+            # Send file
+            embed = discord.Embed(
+                title="📊 Profiles Exported",
+                description=f"Exported {len(self.user_profiles)} user profiles",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="📁 File",
+                value=f"`{filename}`",
+                inline=False
+            )
+            embed.set_footer(text="Open with Excel, Google Sheets, or any spreadsheet app")
+            
+            await interaction.followup.send(embed=embed, file=file)
+            logger.info(f"Profiles exported by {interaction.user.display_name}: {len(self.user_profiles)} profiles")
+            
+        except Exception as e:
+            logger.error(f"Error exporting profiles: {e}")
+            await interaction.followup.send(f"❌ Error exporting profiles: {str(e)[:100]}", ephemeral=True)
+    
     @app_commands.command(name="manual_verify", description="[ADMIN] Manually verify a user")
     @app_commands.describe(
         user="User to verify",
         name="User's name", 
         class_number="User's class (6-12)",
-        email="User's Gmail address",
+        email="User's Gmail address (optional)",
+        phone="User's phone number (optional)",
         social_links="Optional: Social links (GitHub, LinkedIn, Website, etc.) separated by commas"
     )
     @app_commands.default_permissions(administrator=True)
@@ -1100,7 +1374,8 @@ class WelcomeSystem(commands.Cog):
         user: discord.Member,
         name: str,
         class_number: int,
-        email: str,
+        email: str = None,
+        phone: str = None,
         social_links: str = None
     ):
         """Manually verify a user"""
@@ -1113,9 +1388,18 @@ class WelcomeSystem(commands.Cog):
             await interaction.response.send_message("❌ Class must be between 6 and 12.", ephemeral=True)
             return
         
-        if not self.validate_email(email):
-            await interaction.response.send_message("❌ Please provide a valid Gmail address.", ephemeral=True)
+        # Validate email if provided
+        if email and not self.validate_email(email):
+            await interaction.response.send_message("❌ Please provide a valid Gmail address or leave empty.", ephemeral=True)
             return
+        
+        # Validate phone if provided
+        formatted_phone = None
+        if phone:
+            formatted_phone = self.validate_phone(phone)
+            if not formatted_phone:
+                await interaction.response.send_message("❌ Please provide a valid phone number or leave empty.", ephemeral=True)
+                return
         
         await interaction.response.defer()
         
@@ -1132,6 +1416,7 @@ class WelcomeSystem(commands.Cog):
                 "name": name,
                 "class": str(class_number),
                 "email": email,
+                "phone": formatted_phone,
                 "social_links": parsed_links,
                 "discord_id": user.id,
                 "discord_username": str(user),
@@ -1152,11 +1437,19 @@ class WelcomeSystem(commands.Cog):
                 description=f"**{name}** has been verified and assigned Class {class_number} role.",
                 color=discord.Color.green()
             )
-            embed.add_field(
-                name="📧 Email",
-                value=email,
-                inline=True
-            )
+            
+            contact_info = []
+            if email:
+                contact_info.append(f"📧 {email}")
+            if formatted_phone:
+                contact_info.append(f"📱 {formatted_phone}")
+            
+            if contact_info:
+                embed.add_field(
+                    name="📞 Contact",
+                    value="\n".join(contact_info),
+                    inline=True
+                )
             
             if parsed_links:
                 links_text = []
@@ -1172,7 +1465,7 @@ class WelcomeSystem(commands.Cog):
             embed.set_thumbnail(url=user.display_avatar.url)
             
             await interaction.followup.send(embed=embed)
-            logger.info(f"Manual verification: {user.display_name} -> {name}, Class {class_number}, {email}, {len(parsed_links)} links")
+            logger.info(f"Manual verification: {user.display_name} -> {name}, Class {class_number}, {len(parsed_links)} links")
         else:
             await interaction.followup.send("❌ Failed to verify user. Check logs for details.", ephemeral=True)
 

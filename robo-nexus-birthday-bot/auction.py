@@ -207,12 +207,95 @@ class AuctionSystem(commands.Cog):
                             value=f"Contact {seller.mention} to arrange payment and pickup!",
                             inline=False
                         )
+                    
+                    # DM the winner
+                    if winner:
+                        try:
+                            winner_embed = discord.Embed(
+                                title="🎉 Congratulations! You Won!",
+                                description=f"You won the auction for **{auction.title}**!",
+                                color=discord.Color.gold()
+                            )
+                            winner_embed.add_field(
+                                name="💰 Final Price",
+                                value=f"₹{auction.current_bid:,.2f}",
+                                inline=True
+                            )
+                            if seller:
+                                winner_embed.add_field(
+                                    name="📞 Contact Seller",
+                                    value=f"{seller.mention} ({seller.display_name})",
+                                    inline=False
+                                )
+                            winner_embed.add_field(
+                                name="📋 Next Steps",
+                                value="1. Contact the seller to arrange payment\n2. Coordinate pickup/delivery\n3. Complete the transaction",
+                                inline=False
+                            )
+                            if auction.image_url:
+                                winner_embed.set_thumbnail(url=auction.image_url)
+                            
+                            await winner.send(embed=winner_embed)
+                            logger.info(f"Sent winner notification to {winner.display_name}")
+                        except:
+                            logger.warning(f"Could not DM winner {winner.display_name}")
+                    
+                    # DM the seller
+                    if seller:
+                        try:
+                            seller_embed = discord.Embed(
+                                title="✅ Your Auction Ended!",
+                                description=f"Your auction for **{auction.title}** has sold!",
+                                color=discord.Color.green()
+                            )
+                            seller_embed.add_field(
+                                name="💰 Sold For",
+                                value=f"₹{auction.current_bid:,.2f}",
+                                inline=True
+                            )
+                            if winner:
+                                seller_embed.add_field(
+                                    name="👤 Buyer",
+                                    value=f"{winner.mention} ({winner.display_name})",
+                                    inline=False
+                                )
+                            seller_embed.add_field(
+                                name="📋 Next Steps",
+                                value="1. Wait for the buyer to contact you\n2. Arrange payment method\n3. Coordinate pickup/delivery",
+                                inline=False
+                            )
+                            if auction.image_url:
+                                seller_embed.set_thumbnail(url=auction.image_url)
+                            
+                            await seller.send(embed=seller_embed)
+                            logger.info(f"Sent seller notification to {seller.display_name}")
+                        except:
+                            logger.warning(f"Could not DM seller {seller.display_name}")
+                    
                 else:
                     embed = discord.Embed(
                         title=f"❌ Auction Closed: {auction.title}",
                         description="No bids were placed on this item.",
                         color=discord.Color.red()
                     )
+                    
+                    # Notify seller
+                    seller = guild.get_member(auction.seller_id)
+                    if seller:
+                        try:
+                            seller_embed = discord.Embed(
+                                title="❌ Auction Ended - No Bids",
+                                description=f"Your auction for **{auction.title}** ended with no bids.",
+                                color=discord.Color.orange()
+                            )
+                            seller_embed.add_field(
+                                name="💡 Suggestions",
+                                value="• Try lowering the starting price\n• Add more details or better photos\n• Relist during peak hours",
+                                inline=False
+                            )
+                            await seller.send(embed=seller_embed)
+                        except:
+                            pass
                 
                 embed.set_footer(text=f"Auction #{auction.id} • Closed: {reason}")
                 
@@ -306,6 +389,13 @@ class AuctionSystem(commands.Cog):
                 value=f"<t:{int(end_time.timestamp())}:R>",
                 inline=True
             )
+        elif auction.status == "active":
+            # No end time = runs forever
+            embed.add_field(
+                name="⏰ Duration",
+                value="♾️ Runs Forever",
+                inline=True
+            )
         
         # Seller info
         seller = guild.get_member(auction.seller_id)
@@ -327,14 +417,14 @@ class AuctionSystem(commands.Cog):
     
     # ==================== COMMANDS ====================
     
-    @app_commands.command(name="auction_create", description="[ADMIN] Create a new auction listing")
+    @app_commands.command(name="auction_create", description="Create a new auction listing")
     @app_commands.describe(
         title="Item title",
         description="Item description",
         starting_price="Starting bid price in ₹",
         category="Item category",
         condition="Item condition",
-        duration_hours="Auction duration in hours (default: 72)",
+        duration_hours="Auction duration in hours (0 = runs forever, default: 72)",
         buy_now_price="Optional instant buy price",
         image_url="Optional image URL"
     )
@@ -352,16 +442,16 @@ class AuctionSystem(commands.Cog):
     ):
         """Create a new auction listing"""
         
-        if not self.can_create_auction(interaction.user):
-            await interaction.response.send_message(
-                "❌ You need a **Seller** role or admin permissions to create auctions.",
-                ephemeral=True
-            )
-            return
+        # Everyone can create auctions now!
         
         await interaction.response.defer()
         
         try:
+            # Calculate end time (None if duration is 0 = forever)
+            ends_at = None
+            if duration_hours > 0:
+                ends_at = (datetime.now() + timedelta(hours=duration_hours)).isoformat()
+            
             # Create auction item
             auction = AuctionItem({
                 "id": self.next_id,
@@ -374,7 +464,7 @@ class AuctionSystem(commands.Cog):
                 "current_bidder_id": None,
                 "seller_id": interaction.user.id,
                 "created_at": datetime.now().isoformat(),
-                "ends_at": (datetime.now() + timedelta(hours=duration_hours)).isoformat(),
+                "ends_at": ends_at,  # None = runs forever
                 "status": "active",
                 "bid_history": [],
                 "category": category,
@@ -428,7 +518,11 @@ class AuctionSystem(commands.Cog):
             )
             confirm_embed.add_field(name="Auction ID", value=f"#{auction.id}", inline=True)
             confirm_embed.add_field(name="Starting Price", value=f"₹{starting_price:,.2f}", inline=True)
-            confirm_embed.add_field(name="Duration", value=f"{duration_hours} hours", inline=True)
+            
+            if duration_hours > 0:
+                confirm_embed.add_field(name="Duration", value=f"{duration_hours} hours", inline=True)
+            else:
+                confirm_embed.add_field(name="Duration", value="♾️ Runs Forever", inline=True)
             
             await interaction.followup.send(embed=confirm_embed)
             logger.info(f"Auction #{auction.id} created: {title}")
@@ -661,8 +755,11 @@ class AuctionSystem(commands.Cog):
                 current_price = auction.current_bid if auction.current_bid > 0 else auction.starting_price
                 
                 # Time remaining
-                end_time = datetime.fromisoformat(auction.ends_at)
-                time_left = f"<t:{int(end_time.timestamp())}:R>"
+                if auction.ends_at:
+                    end_time = datetime.fromisoformat(auction.ends_at)
+                    time_left = f"<t:{int(end_time.timestamp())}:R>"
+                else:
+                    time_left = "♾️ Forever"
                 
                 value = f"💰 **₹{current_price:,.2f}** • {len(auction.bid_history)} bids\n⏰ Ends {time_left}"
                 
