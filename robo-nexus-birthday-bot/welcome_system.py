@@ -113,8 +113,8 @@ class WelcomeSystem(commands.Cog):
             if not line:
                 continue
             
-            # Remove common prefixes like "GitHub:", "LinkedIn:", etc.
-            line = re.sub(r'^(github|linkedin|youtube|spotify):\s*', '', line, flags=re.IGNORECASE)
+            # Remove common prefixes like "GitHub:", "LinkedIn:", "Website:", etc.
+            line = re.sub(r'^(github|linkedin|youtube|spotify|website|portfolio):\s*', '', line, flags=re.IGNORECASE)
             
             # GitHub
             if 'github.com' in line.lower():
@@ -132,9 +132,9 @@ class WelcomeSystem(commands.Cog):
             elif 'spotify.com' in line.lower() or 'open.spotify.com' in line.lower():
                 links['spotify'] = line if line.startswith('http') else f"https://{line}"
             
-            # Generic URL detection
-            elif 'http' in line.lower():
-                # Try to identify platform from URL
+            # Generic URL detection (personal websites, portfolios, etc.)
+            elif 'http' in line.lower() or '.' in line:
+                # Try to identify known platforms first
                 if 'github' in line.lower():
                     links['github'] = line
                 elif 'linkedin' in line.lower():
@@ -143,6 +143,19 @@ class WelcomeSystem(commands.Cog):
                     links['youtube'] = line
                 elif 'spotify' in line.lower():
                     links['spotify'] = line
+                else:
+                    # Personal website or unknown platform
+                    # Use domain name as key or generic "website"
+                    url = line if line.startswith('http') else f"https://{line}"
+                    
+                    # If we already have a website, add as website2, website3, etc.
+                    website_key = 'website'
+                    counter = 1
+                    while website_key in links:
+                        counter += 1
+                        website_key = f'website{counter}'
+                    
+                    links[website_key] = url
         
         return links
     
@@ -339,13 +352,13 @@ class WelcomeSystem(commands.Cog):
             
             embed.add_field(
                 name="🌐 Supported Platforms",
-                value="• **GitHub** - Your coding projects\n• **LinkedIn** - Professional profile\n• **YouTube** - Your channel\n• **Spotify** - Music profile",
+                value="• **GitHub** - Your coding projects\n• **LinkedIn** - Professional profile\n• **YouTube** - Your channel\n• **Spotify** - Music profile\n• **Website** - Your personal website/portfolio",
                 inline=False
             )
             
             embed.add_field(
                 name="💡 Example Response",
-                value="```\nGitHub: github.com/johnsmith\nLinkedIn: linkedin.com/in/johnsmith\nYouTube: youtube.com/@johnsmith\n```\nOr simply: `None` if you don't want to share",
+                value="```\nGitHub: github.com/johnsmith\nLinkedIn: linkedin.com/in/johnsmith\nWebsite: johnsmith.dev\n```\nOr simply: `None` if you don't want to share",
                 inline=False
             )
             
@@ -687,12 +700,18 @@ class WelcomeSystem(commands.Cog):
             # Assign the role
             await member.add_roles(role, reason=f"Auto-assigned class role: {name}")
             
-            # Update nickname to include name if different
+            # Update nickname to the provided name
             try:
-                if member.display_name != name and len(name) <= 32:
-                    await member.edit(nick=name, reason="Set name from welcome process")
+                # Always set nickname to the provided name (max 32 characters for Discord)
+                if len(name) <= 32:
+                    await member.edit(nick=name, reason="Set name from welcome verification")
+                    logger.info(f"Set nickname to '{name}' for {member.display_name}")
+                else:
+                    logger.warning(f"Name '{name}' is too long ({len(name)} chars), max is 32")
             except discord.Forbidden:
-                logger.warning(f"Could not set nickname for {member.display_name}")
+                logger.warning(f"Could not set nickname for {member.display_name} - missing permissions or user has higher role")
+            except Exception as e:
+                logger.error(f"Error setting nickname: {e}")
             
             logger.info(f"Assigned role '{role_name}' to {member.display_name}")
             return True
@@ -918,12 +937,161 @@ class WelcomeSystem(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
+    @app_commands.command(name="update_profile", description="[ADMIN] Update a user's profile")
+    @app_commands.describe(
+        user="User whose profile to update",
+        name="New name (leave empty to keep current)",
+        class_number="New class (leave empty to keep current)",
+        email="New email (leave empty to keep current)",
+        social_links="Social links to ADD (will merge with existing links)"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def update_profile(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        name: str = None,
+        class_number: int = None,
+        email: str = None,
+        social_links: str = None
+    ):
+        """Update an existing user's profile"""
+        
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Administrator permissions required.", ephemeral=True)
+            return
+        
+        user_id = str(user.id)
+        
+        # Check if user has a profile
+        if user_id not in self.user_profiles:
+            await interaction.response.send_message(
+                f"❌ No profile found for {user.display_name}. Use `/manual_verify` to create one first.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer()
+        
+        profile = self.user_profiles[user_id]
+        changes = []
+        
+        # Update name
+        if name:
+            old_name = profile['name']
+            profile['name'] = name
+            changes.append(f"**Name:** {old_name} → {name}")
+            
+            # Update nickname
+            try:
+                if len(name) <= 32:
+                    await user.edit(nick=name, reason="Profile name updated")
+            except:
+                pass
+        
+        # Update class
+        if class_number:
+            if class_number not in range(6, 13):
+                await interaction.followup.send("❌ Class must be between 6 and 12.", ephemeral=True)
+                return
+            
+            old_class = profile['class']
+            profile['class'] = str(class_number)
+            changes.append(f"**Class:** {old_class} → {class_number}")
+            
+            # Update class role
+            # Remove old class role
+            old_role = discord.utils.get(user.guild.roles, name=old_class)
+            if old_role and old_role in user.roles:
+                await user.remove_roles(old_role, reason="Class updated")
+            
+            # Add new class role
+            new_role = await self.get_or_create_role(user.guild, str(class_number))
+            if new_role:
+                await user.add_roles(new_role, reason="Class updated")
+        
+        # Update email
+        if email:
+            if not self.validate_email(email):
+                await interaction.followup.send("❌ Please provide a valid Gmail address.", ephemeral=True)
+                return
+            
+            old_email = profile['email']
+            profile['email'] = email
+            changes.append(f"**Email:** {old_email} → {email}")
+        
+        # Add/update social links
+        if social_links:
+            new_links = self.validate_social_links(social_links)
+            
+            if new_links:
+                # Merge with existing links (new links override old ones with same key)
+                if 'social_links' not in profile:
+                    profile['social_links'] = {}
+                
+                old_links = profile['social_links'].copy()
+                profile['social_links'].update(new_links)
+                
+                added_links = []
+                for platform, url in new_links.items():
+                    added_links.append(f"**{platform.title()}:** {url}")
+                
+                changes.append(f"**Social Links Added/Updated:**\n" + "\n".join(added_links))
+        
+        if not changes:
+            await interaction.followup.send("❌ No changes specified. Provide at least one field to update.", ephemeral=True)
+            return
+        
+        # Update timestamp
+        profile['last_updated'] = discord.utils.utcnow().isoformat()
+        profile['last_updated_by'] = interaction.user.id
+        
+        # Save changes
+        self.save_welcome_data()
+        
+        # Send confirmation
+        embed = discord.Embed(
+            title="✅ Profile Updated",
+            description=f"Updated profile for {user.mention}",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="📝 Changes Made",
+            value="\n\n".join(changes),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="👤 Current Profile",
+            value=f"**Name:** {profile['name']}\n**Class:** {profile['class']}\n**Email:** {profile['email']}",
+            inline=False
+        )
+        
+        if profile.get('social_links'):
+            links_text = []
+            for platform, url in profile['social_links'].items():
+                links_text.append(f"**{platform.title()}:** {url}")
+            
+            embed.add_field(
+                name="🔗 All Social Links",
+                value="\n".join(links_text),
+                inline=False
+            )
+        
+        embed.set_thumbnail(url=user.display_avatar.url)
+        embed.set_footer(text=f"Updated by {interaction.user.display_name}")
+        
+        await interaction.followup.send(embed=embed)
+        logger.info(f"Profile updated for {user.display_name} by {interaction.user.display_name}: {len(changes)} changes")
+    
     @app_commands.command(name="manual_verify", description="[ADMIN] Manually verify a user")
     @app_commands.describe(
         user="User to verify",
         name="User's name", 
         class_number="User's class (6-12)",
-        email="User's Gmail address"
+        email="User's Gmail address",
+        social_links="Optional: Social links (GitHub, LinkedIn, Website, etc.) separated by commas"
     )
     @app_commands.default_permissions(administrator=True)
     async def manual_verify(
@@ -932,7 +1100,8 @@ class WelcomeSystem(commands.Cog):
         user: discord.Member,
         name: str,
         class_number: int,
-        email: str
+        email: str,
+        social_links: str = None
     ):
         """Manually verify a user"""
         
@@ -950,6 +1119,11 @@ class WelcomeSystem(commands.Cog):
         
         await interaction.response.defer()
         
+        # Parse social links if provided
+        parsed_links = {}
+        if social_links:
+            parsed_links = self.validate_social_links(social_links)
+        
         success = await self.assign_class_role(user, str(class_number), name)
         
         if success:
@@ -958,7 +1132,7 @@ class WelcomeSystem(commands.Cog):
                 "name": name,
                 "class": str(class_number),
                 "email": email,
-                "social_links": {},
+                "social_links": parsed_links,
                 "discord_id": user.id,
                 "discord_username": str(user),
                 "joined_at": user.joined_at.isoformat() if user.joined_at else None,
@@ -983,10 +1157,22 @@ class WelcomeSystem(commands.Cog):
                 value=email,
                 inline=True
             )
+            
+            if parsed_links:
+                links_text = []
+                for platform, url in parsed_links.items():
+                    links_text.append(f"**{platform.title()}:** {url}")
+                
+                embed.add_field(
+                    name="🔗 Social Links",
+                    value="\n".join(links_text),
+                    inline=False
+                )
+            
             embed.set_thumbnail(url=user.display_avatar.url)
             
             await interaction.followup.send(embed=embed)
-            logger.info(f"Manual verification: {user.display_name} -> {name}, Class {class_number}, {email}")
+            logger.info(f"Manual verification: {user.display_name} -> {name}, Class {class_number}, {email}, {len(parsed_links)} links")
         else:
             await interaction.followup.send("❌ Failed to verify user. Check logs for details.", ephemeral=True)
 
