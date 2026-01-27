@@ -15,6 +15,39 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 AUCTION_DATA_FILE = "auction_data.json"
+AUCTION_REQUESTS_FILE = "auction_requests.json"
+
+class AuctionRequest:
+    """Represents a product request from buyers"""
+    def __init__(self, data: dict):
+        self.id = data.get("id")
+        self.title = data.get("title")
+        self.description = data.get("description")
+        self.max_budget = data.get("max_budget")
+        self.category = data.get("category", "Other")
+        self.condition_preference = data.get("condition_preference", "Any")
+        self.requester_id = data.get("requester_id")
+        self.created_at = data.get("created_at")
+        self.status = data.get("status", "active")  # active, fulfilled, closed
+        self.interested_sellers = data.get("interested_sellers", [])
+        self.message_id = data.get("message_id")
+        self.channel_id = data.get("channel_id")
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "max_budget": self.max_budget,
+            "category": self.category,
+            "condition_preference": self.condition_preference,
+            "requester_id": self.requester_id,
+            "created_at": self.created_at,
+            "status": self.status,
+            "interested_sellers": self.interested_sellers,
+            "message_id": self.message_id,
+            "channel_id": self.channel_id
+        }
 
 class AuctionItem:
     """Represents an auction item"""
@@ -65,11 +98,14 @@ class AuctionSystem(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.auctions: Dict[int, AuctionItem] = {}
+        self.auction_requests: Dict[int, AuctionRequest] = {}
         self.next_id = 1
+        self.next_request_id = 1
         self.auction_channel_id = None
         
-        # Load existing auctions
+        # Load existing auctions and requests
         self.load_auctions()
+        self.load_auction_requests()
         
         # Start auction monitoring
         self.check_expired_auctions.start()
@@ -94,6 +130,37 @@ class AuctionSystem(commands.Cog):
         except Exception as e:
             logger.error(f"Error loading auctions: {e}")
     
+    def load_auction_requests(self):
+        """Load auction requests from file"""
+        try:
+            if os.path.exists(AUCTION_REQUESTS_FILE):
+                with open(AUCTION_REQUESTS_FILE, 'r') as f:
+                    data = json.load(f)
+                    
+                    self.next_request_id = data.get("next_request_id", 1)
+                    
+                    for request_data in data.get("requests", []):
+                        request = AuctionRequest(request_data)
+                        self.auction_requests[request.id] = request
+                    
+                    logger.info(f"Loaded {len(self.auction_requests)} auction requests")
+        except Exception as e:
+            logger.error(f"Error loading auction requests: {e}")
+    
+    def save_auction_requests(self):
+        """Save auction requests to file"""
+        try:
+            data = {
+                "next_request_id": self.next_request_id,
+                "requests": [request.to_dict() for request in self.auction_requests.values()]
+            }
+            
+            with open(AUCTION_REQUESTS_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Error saving auction requests: {e}")
+
     def save_auctions(self):
         """Save auctions to file"""
         try:
@@ -113,20 +180,14 @@ class AuctionSystem(commands.Cog):
         """Check if user has admin permissions"""
         return member.guild_permissions.administrator or member.guild_permissions.manage_guild
     
-    def can_create_auction(self, member: discord.Member) -> bool:
-        """Check if user can create auctions (admin OR has seller role)"""
+    def can_create_auction(self, member: discord.Member) -> tuple[bool, str]:
+        """Check if user can create auctions - simplified version"""
         # Admins can always create
         if self.is_admin(member):
-            return True
+            return True, "Admin privileges"
         
-        # Check for seller roles (case-insensitive)
-        seller_role_names = ['seller', 'auction', 'auctioneer', 'sales', 'vendor', 'shop']
-        
-        for role in member.roles:
-            if role.name.lower() in seller_role_names:
-                return True
-        
-        return False
+        # Everyone else can create auctions
+        return True, "All users can create auctions"
     
     async def get_auction_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
         """Get the auction channel"""
@@ -442,7 +503,38 @@ class AuctionSystem(commands.Cog):
     ):
         """Create a new auction listing"""
         
-        # Everyone can create auctions now!
+        # Check if user can create auctions
+        can_create, reason = self.can_create_auction(interaction.user)
+        
+        if not can_create:
+            embed = discord.Embed(
+                title="❌ Cannot Create Auction",
+                description=f"**Reason:** {reason}",
+                color=discord.Color.red()
+            )
+            
+            # Add helpful suggestions based on the reason
+            if "role" in reason.lower():
+                embed.add_field(
+                    name="💡 How to get seller role",
+                    value="Contact an admin to get the required seller role.",
+                    inline=False
+                )
+            elif "products" in reason.lower():
+                embed.add_field(
+                    name="💡 How to get products",
+                    value="Successfully sell items through auctions to build your product count.",
+                    inline=False
+                )
+            elif "portfolio" in reason.lower():
+                embed.add_field(
+                    name="💡 How to add portfolio",
+                    value="Complete the welcome verification process and add your portfolio website.",
+                    inline=False
+                )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
         
         await interaction.response.defer()
         
@@ -510,7 +602,7 @@ class AuctionSystem(commands.Cog):
             self.auctions[auction.id] = auction
             self.save_auctions()
             
-            # Confirm to admin
+            # Confirm to user
             confirm_embed = discord.Embed(
                 title="✅ Auction Created!",
                 description=f"**{title}** is now listed in {channel.mention}",
@@ -524,8 +616,10 @@ class AuctionSystem(commands.Cog):
             else:
                 confirm_embed.add_field(name="Duration", value="♾️ Runs Forever", inline=True)
             
+            confirm_embed.add_field(name="✅ Qualification", value=reason, inline=False)
+            
             await interaction.followup.send(embed=confirm_embed)
-            logger.info(f"Auction #{auction.id} created: {title}")
+            logger.info(f"Auction #{auction.id} created: {title} by {interaction.user} ({reason})")
             
         except Exception as e:
             logger.error(f"Error creating auction: {e}")
@@ -924,6 +1018,116 @@ class AuctionSystem(commands.Cog):
             logger.error(f"Error closing auction: {e}")
             await interaction.followup.send("❌ Error closing auction.", ephemeral=True)
     
+    @app_commands.command(name="auction_edit", description="Edit your auction listing")
+    @app_commands.describe(
+        auction_id="The auction ID to edit",
+        title="New title (optional)",
+        description="New description (optional)",
+        buy_now_price="New buy now price (optional)",
+        image_url="New image URL (optional)"
+    )
+    async def auction_edit(
+        self,
+        interaction: discord.Interaction,
+        auction_id: int,
+        title: str = None,
+        description: str = None,
+        buy_now_price: float = None,
+        image_url: str = None
+    ):
+        """Edit an existing auction listing"""
+        
+        auction = self.auctions.get(auction_id)
+        
+        if not auction:
+            await interaction.response.send_message(f"❌ Auction #{auction_id} not found.", ephemeral=True)
+            return
+        
+        # Check permissions: Admin can edit any, Seller can only edit their own
+        is_owner = auction.seller_id == interaction.user.id
+        is_admin = self.is_admin(interaction.user)
+        
+        if not is_admin and not is_owner:
+            await interaction.response.send_message(
+                "❌ You can only edit your own auctions.",
+                ephemeral=True
+            )
+            return
+        
+        if auction.status != "active":
+            await interaction.response.send_message(f"❌ Cannot edit {auction.status} auction.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        try:
+            # Update fields if provided
+            changes = []
+            if title:
+                auction.title = title
+                changes.append(f"Title: {title}")
+            if description:
+                auction.description = description
+                changes.append("Description updated")
+            if buy_now_price is not None:
+                auction.buy_now_price = buy_now_price if buy_now_price > 0 else None
+                changes.append(f"Buy Now: ₹{buy_now_price:,.2f}" if buy_now_price > 0 else "Buy Now removed")
+            if image_url:
+                auction.image_url = image_url
+                changes.append("Image updated")
+            
+            if not changes:
+                await interaction.followup.send("❌ No changes specified.", ephemeral=True)
+                return
+            
+            self.save_auctions()
+            
+            # Update auction message
+            if auction.message_id and auction.channel_id:
+                try:
+                    channel = interaction.guild.get_channel(auction.channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(auction.message_id)
+                        embed = await self.create_auction_embed(auction, interaction.guild)
+                        
+                        # Add bidding instructions
+                        min_bid = auction.current_bid + 10 if auction.current_bid > 0 else auction.starting_price
+                        embed.add_field(
+                            name="📝 How to Bid",
+                            value=f"Use `/bid {auction.id} <amount>` to place a bid!\nMinimum bid: **₹{min_bid:,.2f}**",
+                            inline=False
+                        )
+                        
+                        if auction.buy_now_price:
+                            embed.add_field(
+                                name="⚡ Instant Buy",
+                                value=f"Use `/buy_now {auction.id}` to buy instantly for **₹{auction.buy_now_price:,.2f}**",
+                                inline=False
+                            )
+                        
+                        await msg.edit(embed=embed)
+                except Exception as e:
+                    logger.warning(f"Could not update auction message: {e}")
+            
+            # Confirm changes
+            embed = discord.Embed(
+                title="✅ Auction Updated!",
+                description=f"**{auction.title}** has been updated.",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Changes Made",
+                value="\n".join(changes),
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Auction #{auction_id} edited by {interaction.user}: {changes}")
+            
+        except Exception as e:
+            logger.error(f"Error editing auction: {e}")
+            await interaction.followup.send("❌ Error updating auction.", ephemeral=True)
+
     @app_commands.command(name="auction_delete", description="Delete an auction listing")
     @app_commands.describe(auction_id="The auction ID to delete")
     async def auction_delete(self, interaction: discord.Interaction, auction_id: int):
@@ -969,7 +1173,551 @@ class AuctionSystem(commands.Cog):
         except Exception as e:
             logger.error(f"Error deleting auction: {e}")
             await interaction.followup.send("❌ Error deleting auction.", ephemeral=True)
+
+    # ==================== AUCTION REQUEST COMMANDS ====================
     
+    @app_commands.command(name="request_product", description="Request a specific product you want to buy")
+    @app_commands.describe(
+        title="Product you're looking for",
+        description="Detailed description of what you need",
+        max_budget="Maximum amount you're willing to pay (₹)",
+        category="Product category",
+        condition="Preferred condition"
+    )
+    async def request_product(
+        self,
+        interaction: discord.Interaction,
+        title: str,
+        description: str,
+        max_budget: float,
+        category: str = "Electronics",
+        condition: str = "Any"
+    ):
+        """Create a product request for sellers to see"""
+        
+        await interaction.response.defer()
+        
+        try:
+            # Create auction request
+            request = AuctionRequest({
+                "id": self.next_request_id,
+                "title": title,
+                "description": description,
+                "max_budget": max_budget,
+                "category": category,
+                "condition_preference": condition,
+                "requester_id": interaction.user.id,
+                "created_at": datetime.now().isoformat(),
+                "status": "active",
+                "interested_sellers": []
+            })
+            
+            self.next_request_id += 1
+            
+            # Get auction channel
+            channel = await self.get_auction_channel(interaction.guild)
+            if not channel:
+                await interaction.followup.send(
+                    "❌ No auction channel found. Create a channel with 'auction' in the name.",
+                    ephemeral=True
+                )
+                return
+            
+            # Create and send embed
+            embed = await self.create_request_embed(request, interaction.guild)
+            
+            # Send to auction channel
+            msg = await channel.send(embed=embed)
+            
+            # Store message ID for updates
+            request.message_id = msg.id
+            request.channel_id = channel.id
+            
+            # Save request
+            self.auction_requests[request.id] = request
+            self.save_auction_requests()
+            
+            # Confirm to user
+            confirm_embed = discord.Embed(
+                title="✅ Product Request Posted!",
+                description=f"Your request for **{title}** is now posted in {channel.mention}",
+                color=discord.Color.green()
+            )
+            confirm_embed.add_field(name="Request ID", value=f"#{request.id}", inline=True)
+            confirm_embed.add_field(name="Max Budget", value=f"₹{max_budget:,.2f}", inline=True)
+            confirm_embed.add_field(name="Category", value=category, inline=True)
+            
+            await interaction.followup.send(embed=confirm_embed)
+            logger.info(f"Product request #{request.id} created: {title} by {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error creating product request: {e}")
+            await interaction.followup.send(
+                f"❌ Error creating request: {str(e)[:100]}",
+                ephemeral=True
+            )
+    
+    @request_product.autocomplete('category')
+    async def request_category_autocomplete(self, interaction: discord.Interaction, current: str):
+        categories = [
+            "Electronics", "Motors", "Sensors", "Controllers", "Batteries",
+            "Mechanical Parts", "3D Printed", "Tools", "Cables & Wires",
+            "Displays", "Cameras", "Wheels & Chassis", "Other"
+        ]
+        return [
+            app_commands.Choice(name=cat, value=cat)
+            for cat in categories if current.lower() in cat.lower()
+        ][:25]
+    
+    @request_product.autocomplete('condition')
+    async def request_condition_autocomplete(self, interaction: discord.Interaction, current: str):
+        conditions = [
+            "Any", "New Only", "Used - Like New", "Used - Good", 
+            "Used - Fair", "For Parts/Repair"
+        ]
+        return [
+            app_commands.Choice(name=cond, value=cond)
+            for cond in conditions if current.lower() in cond.lower()
+        ][:25]
+    
+    async def create_request_embed(self, request: AuctionRequest, guild: discord.Guild) -> discord.Embed:
+        """Create embed for product request"""
+        
+        status_colors = {
+            "active": discord.Color.blue(),
+            "fulfilled": discord.Color.green(),
+            "closed": discord.Color.red()
+        }
+        
+        status_emoji = {
+            "active": "🔍",
+            "fulfilled": "✅",
+            "closed": "❌"
+        }
+        
+        embed = discord.Embed(
+            title=f"{status_emoji.get(request.status, '🔍')} WANTED: {request.title}",
+            description=request.description,
+            color=status_colors.get(request.status, discord.Color.blue())
+        )
+        
+        # Budget info
+        embed.add_field(
+            name="💰 Max Budget",
+            value=f"**₹{request.max_budget:,.2f}**",
+            inline=True
+        )
+        
+        # Category and condition
+        embed.add_field(
+            name="📋 Details",
+            value=f"**Category:** {request.category}\n**Condition:** {request.condition_preference}",
+            inline=True
+        )
+        
+        # Interested sellers count
+        embed.add_field(
+            name="👥 Interested Sellers",
+            value=f"**{len(request.interested_sellers)}** seller(s)",
+            inline=True
+        )
+        
+        # Requester info
+        requester = guild.get_member(request.requester_id)
+        if requester:
+            embed.set_author(
+                name=f"Requested by {requester.display_name}",
+                icon_url=requester.avatar.url if requester.avatar else None
+            )
+        
+        # Instructions for sellers
+        if request.status == "active":
+            embed.add_field(
+                name="📝 For Sellers",
+                value=f"Use `/seller_interest {request.id}` to show interest!\nThen create an auction with `/auction_create`",
+                inline=False
+            )
+        
+        embed.set_footer(text=f"Request #{request.id} • Created: {request.created_at[:10]}")
+        
+        return embed
+    
+    @app_commands.command(name="seller_interest", description="Show interest in a product request")
+    @app_commands.describe(request_id="The request ID you're interested in")
+    async def seller_interest(self, interaction: discord.Interaction, request_id: int):
+        """Show interest in fulfilling a product request"""
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            request = self.auction_requests.get(request_id)
+            
+            if not request:
+                await interaction.followup.send(f"❌ Request #{request_id} not found.", ephemeral=True)
+                return
+            
+            if request.status != "active":
+                await interaction.followup.send(f"❌ This request is no longer active.", ephemeral=True)
+                return
+            
+            if request.requester_id == interaction.user.id:
+                await interaction.followup.send("❌ You can't show interest in your own request!", ephemeral=True)
+                return
+            
+            # Check if already interested
+            if interaction.user.id in request.interested_sellers:
+                await interaction.followup.send("✅ You're already showing interest in this request.", ephemeral=True)
+                return
+            
+            # Add seller to interested list
+            request.interested_sellers.append(interaction.user.id)
+            self.save_auction_requests()
+            
+            # Update request message
+            if request.message_id and request.channel_id:
+                try:
+                    channel = interaction.guild.get_channel(request.channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(request.message_id)
+                        embed = await self.create_request_embed(request, interaction.guild)
+                        await msg.edit(embed=embed)
+                except:
+                    pass
+            
+            # Notify requester
+            requester = interaction.guild.get_member(request.requester_id)
+            if requester:
+                try:
+                    notify_embed = discord.Embed(
+                        title="🔔 Seller Interested!",
+                        description=f"**{interaction.user.display_name}** is interested in your request for **{request.title}**",
+                        color=discord.Color.green()
+                    )
+                    notify_embed.add_field(
+                        name="📞 Next Steps",
+                        value=f"Contact {interaction.user.mention} to discuss details!",
+                        inline=False
+                    )
+                    await requester.send(embed=notify_embed)
+                except:
+                    pass  # DMs might be disabled
+            
+            # Confirm to seller
+            await interaction.followup.send(
+                f"✅ Interest registered! The requester has been notified. You can now create an auction for **{request.title}**.",
+                ephemeral=True
+            )
+            
+            logger.info(f"Seller interest registered: {interaction.user} for request #{request_id}")
+            
+        except Exception as e:
+            logger.error(f"Error registering seller interest: {e}")
+            await interaction.followup.send("❌ Error registering interest.", ephemeral=True)
+    
+    @app_commands.command(name="request_list", description="View all active product requests")
+    async def request_list(self, interaction: discord.Interaction):
+        """List all active product requests"""
+        
+        await interaction.response.defer()
+        
+        try:
+            active_requests = [r for r in self.auction_requests.values() if r.status == "active"]
+            
+            if not active_requests:
+                embed = discord.Embed(
+                    title="🔍 No Active Requests",
+                    description="There are no product requests currently.\nUse `/request_product` to request something you need!",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed)
+                return
+            
+            embed = discord.Embed(
+                title=f"🔍 Active Product Requests ({len(active_requests)})",
+                color=discord.Color.blue()
+            )
+            
+            for request in active_requests[:10]:  # Limit to 10
+                requester = interaction.guild.get_member(request.requester_id)
+                requester_name = requester.display_name if requester else "Unknown"
+                
+                value = f"💰 **₹{request.max_budget:,.2f}** budget\n👥 {len(request.interested_sellers)} interested seller(s)\n👤 Requested by {requester_name}"
+                
+                embed.add_field(
+                    name=f"#{request.id} {request.title}",
+                    value=value,
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="📝 Commands",
+                value="`/seller_interest <id>` - Show interest as seller\n`/request_view <id>` - View details",
+                inline=False
+            )
+            
+            if len(active_requests) > 10:
+                embed.set_footer(text=f"Showing 10 of {len(active_requests)} requests")
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error listing requests: {e}")
+            await interaction.followup.send("❌ Error loading requests.", ephemeral=True)
+    
+    @app_commands.command(name="request_view", description="View details of a specific product request")
+    @app_commands.describe(request_id="The request ID number")
+    async def request_view(self, interaction: discord.Interaction, request_id: int):
+        """View detailed request information"""
+        
+        await interaction.response.defer()
+        
+        try:
+            request = self.auction_requests.get(request_id)
+            
+            if not request:
+                await interaction.followup.send(f"❌ Request #{request_id} not found.", ephemeral=True)
+                return
+            
+            embed = await self.create_request_embed(request, interaction.guild)
+            
+            # Add interested sellers list
+            if request.interested_sellers:
+                sellers_text = []
+                for seller_id in request.interested_sellers[-5:]:  # Last 5 sellers
+                    seller = interaction.guild.get_member(seller_id)
+                    seller_name = seller.display_name if seller else "Unknown"
+                    sellers_text.append(f"• {seller_name}")
+                
+                embed.add_field(
+                    name="👥 Interested Sellers",
+                    value="\n".join(sellers_text) or "None yet",
+                    inline=False
+                )
+            
+            if request.status == "active":
+                embed.add_field(
+                    name="📝 For Sellers",
+                    value=f"Use `/seller_interest {request.id}` to show interest!",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error viewing request: {e}")
+            await interaction.followup.send("❌ Error loading request.", ephemeral=True)
+    
+    @app_commands.command(name="my_requests", description="View your product requests")
+    async def my_requests(self, interaction: discord.Interaction):
+        """View your current product requests"""
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            user_requests = [r for r in self.auction_requests.values() if r.requester_id == interaction.user.id]
+            
+            if not user_requests:
+                embed = discord.Embed(
+                    title="📋 Your Requests",
+                    description="You haven't made any product requests yet!\nUse `/request_product` to request something you need.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title=f"📋 Your Product Requests ({len(user_requests)})",
+                color=discord.Color.blue()
+            )
+            
+            for request in user_requests:
+                status_emoji = {"active": "🔍", "fulfilled": "✅", "closed": "❌"}
+                status = f"{status_emoji.get(request.status, '🔍')} {request.status.title()}"
+                
+                embed.add_field(
+                    name=f"#{request.id} {request.title}",
+                    value=f"{status}\nBudget: **₹{request.max_budget:,.2f}**\nInterested: **{len(request.interested_sellers)}** seller(s)",
+                    inline=True
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in my_requests: {e}")
+            await interaction.followup.send("❌ Error loading your requests.", ephemeral=True)
+
+    @app_commands.command(name="close_request", description="Close your product request")
+    @app_commands.describe(request_id="The request ID to close")
+    async def close_request(self, interaction: discord.Interaction, request_id: int):
+        """Close a product request"""
+        
+        request = self.auction_requests.get(request_id)
+        
+        if not request:
+            await interaction.response.send_message(f"❌ Request #{request_id} not found.", ephemeral=True)
+            return
+        
+        # Check permissions: Admin can close any, Requester can only close their own
+        is_owner = request.requester_id == interaction.user.id
+        is_admin = self.is_admin(interaction.user)
+        
+        if not is_admin and not is_owner:
+            await interaction.response.send_message(
+                "❌ You can only close your own requests.",
+                ephemeral=True
+            )
+            return
+        
+        if request.status != "active":
+            await interaction.response.send_message(f"❌ Request is already {request.status}.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        try:
+            request.status = "closed"
+            self.save_auction_requests()
+            
+            # Update request message
+            if request.message_id and request.channel_id:
+                try:
+                    channel = interaction.guild.get_channel(request.channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(request.message_id)
+                        embed = await self.create_request_embed(request, interaction.guild)
+                        await msg.edit(embed=embed)
+                except:
+                    pass
+            
+            await interaction.followup.send(f"✅ Request #{request_id} has been closed.")
+            logger.info(f"Request #{request_id} closed by {interaction.user}")
+            
+        except Exception as e:
+            logger.error(f"Error closing request: {e}")
+            await interaction.followup.send("❌ Error closing request.", ephemeral=True)
+
+    @app_commands.command(name="edit_request", description="Edit your product request")
+    @app_commands.describe(
+        request_id="The request ID to edit",
+        title="New title (optional)",
+        description="New description (optional)",
+        max_budget="New max budget (optional)",
+        category="New category (optional)",
+        condition="New condition preference (optional)"
+    )
+    async def edit_request(
+        self,
+        interaction: discord.Interaction,
+        request_id: int,
+        title: str = None,
+        description: str = None,
+        max_budget: float = None,
+        category: str = None,
+        condition: str = None
+    ):
+        """Edit an existing product request"""
+        
+        request = self.auction_requests.get(request_id)
+        
+        if not request:
+            await interaction.response.send_message(f"❌ Request #{request_id} not found.", ephemeral=True)
+            return
+        
+        # Check permissions: Admin can edit any, Requester can only edit their own
+        is_owner = request.requester_id == interaction.user.id
+        is_admin = self.is_admin(interaction.user)
+        
+        if not is_admin and not is_owner:
+            await interaction.response.send_message(
+                "❌ You can only edit your own requests.",
+                ephemeral=True
+            )
+            return
+        
+        if request.status != "active":
+            await interaction.response.send_message(f"❌ Cannot edit {request.status} request.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        try:
+            # Update fields if provided
+            changes = []
+            if title:
+                request.title = title
+                changes.append(f"Title: {title}")
+            if description:
+                request.description = description
+                changes.append("Description updated")
+            if max_budget is not None and max_budget > 0:
+                request.max_budget = max_budget
+                changes.append(f"Max Budget: ₹{max_budget:,.2f}")
+            if category:
+                request.category = category
+                changes.append(f"Category: {category}")
+            if condition:
+                request.condition_preference = condition
+                changes.append(f"Condition: {condition}")
+            
+            if not changes:
+                await interaction.followup.send("❌ No changes specified.", ephemeral=True)
+                return
+            
+            self.save_auction_requests()
+            
+            # Update request message
+            if request.message_id and request.channel_id:
+                try:
+                    channel = interaction.guild.get_channel(request.channel_id)
+                    if channel:
+                        msg = await channel.fetch_message(request.message_id)
+                        embed = await self.create_request_embed(request, interaction.guild)
+                        await msg.edit(embed=embed)
+                except Exception as e:
+                    logger.warning(f"Could not update request message: {e}")
+            
+            # Confirm changes
+            embed = discord.Embed(
+                title="✅ Request Updated!",
+                description=f"**{request.title}** has been updated.",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Changes Made",
+                value="\n".join(changes),
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Request #{request_id} edited by {interaction.user}: {changes}")
+            
+        except Exception as e:
+            logger.error(f"Error editing request: {e}")
+            await interaction.followup.send("❌ Error updating request.", ephemeral=True)
+    
+    @edit_request.autocomplete('category')
+    async def edit_request_category_autocomplete(self, interaction: discord.Interaction, current: str):
+        categories = [
+            "Electronics", "Motors", "Sensors", "Controllers", "Batteries",
+            "Mechanical Parts", "3D Printed", "Tools", "Cables & Wires",
+            "Displays", "Cameras", "Wheels & Chassis", "Other"
+        ]
+        return [
+            app_commands.Choice(name=cat, value=cat)
+            for cat in categories if current.lower() in cat.lower()
+        ][:25]
+    
+    @edit_request.autocomplete('condition')
+    async def edit_request_condition_autocomplete(self, interaction: discord.Interaction, current: str):
+        conditions = [
+            "Any", "New Only", "Used - Like New", "Used - Good", 
+            "Used - Fair", "For Parts/Repair"
+        ]
+        return [
+            app_commands.Choice(name=cond, value=cond)
+            for cond in conditions if current.lower() in cond.lower()
+        ][:25]
+
     @app_commands.command(name="set_auction_channel", description="[ADMIN] Set the auction channel")
     @app_commands.describe(channel="The channel for auction listings")
     async def set_auction_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):

@@ -35,6 +35,7 @@ class WelcomeSystem(commands.Cog):
         
         # Verification stages
         self.STAGE_NAME_CLASS = "name_class"
+        self.STAGE_BIRTHDAY = "birthday"
         self.STAGE_EMAIL = "email"
         self.STAGE_PHONE = "phone"
         self.STAGE_LINKS = "links"
@@ -173,30 +174,22 @@ class WelcomeSystem(commands.Cog):
             elif 'spotify.com' in line.lower() or 'open.spotify.com' in line.lower():
                 links['spotify'] = line if line.startswith('http') else f"https://{line}"
             
-            # Generic URL detection (personal websites, portfolios, etc.)
-            elif 'http' in line.lower() or '.' in line:
-                # Try to identify known platforms first
-                if 'github' in line.lower():
-                    links['github'] = line
-                elif 'linkedin' in line.lower():
-                    links['linkedin'] = line
-                elif 'youtube' in line.lower() or 'youtu.be' in line.lower():
-                    links['youtube'] = line
-                elif 'spotify' in line.lower():
-                    links['spotify'] = line
-                else:
-                    # Personal website or unknown platform
-                    # Use domain name as key or generic "website"
-                    url = line if line.startswith('http') else f"https://{line}"
-                    
-                    # If we already have a website, add as website2, website3, etc.
-                    website_key = 'website'
-                    counter = 1
-                    while website_key in links:
-                        counter += 1
-                        website_key = f'website{counter}'
-                    
-                    links[website_key] = url
+            # Portfolio/Website detection (improved with more domains)
+            elif any(keyword in line.lower() for keyword in ['portfolio', 'website', 'site']) or \
+                 any(domain in line.lower() for domain in ['.dev', '.com', '.org', '.net', '.io', '.me', '.co', '.github.io', '.netlify.app', '.vercel.app', '.herokuapp.com', '.firebase.app', '.pages.dev']) or \
+                 line.startswith('http'):
+                
+                # This is likely a website/portfolio
+                url = line if line.startswith('http') else f"https://{line}"
+                
+                # Use 'website' as the key for portfolio/personal websites
+                website_key = 'website'
+                counter = 1
+                while website_key in links:
+                    counter += 1
+                    website_key = f'website{counter}'
+                
+                links[website_key] = url
         
         return links
     
@@ -284,13 +277,13 @@ class WelcomeSystem(commands.Cog):
             
             embed.add_field(
                 name="💡 Example Response",
-                value="```\nJohn Smith, Class 10\n```\nor simply:\n```\nJohn Smith 10th grade\n```",
+                value="```\nJohn Smith, Class 10\n```\nor:\n```\nJohn Smith 10th grade\n```",
                 inline=False
             )
             
             embed.add_field(
                 name="🔄 What's Next?",
-                value="After this, I'll ask for:\n• Your Gmail address\n• Social media links (optional)",
+                value="After this, I'll ask for:\n• Your birthday\n• Your Gmail address\n• Social media links (including portfolio website)",
                 inline=False
             )
             
@@ -419,23 +412,35 @@ class WelcomeSystem(commands.Cog):
             logger.error(f"Error sending phone request: {e}")
     
     async def send_links_request(self, message: discord.Message):
-        """Send request for social media links - Stage 4"""
+        """Send request for social media links - Stage 4 (Portfolio Website Emphasized)"""
         try:
             embed = discord.Embed(
-                title="🔗 Step 4: Social Media Links (Optional)",
-                description="Last step! Please share your social media profiles:",
+                title="🔗 Step 4: Social Media Links & Portfolio",
+                description="Last step! Please share your online presence:",
                 color=discord.Color.purple()
             )
             
             embed.add_field(
-                name="🌐 Supported Platforms",
-                value="• **GitHub** - Your coding projects\n• **LinkedIn** - Professional profile\n• **YouTube** - Your channel\n• **Spotify** - Music profile\n• **Website** - Your personal website/portfolio",
+                name="🌟 **PORTFOLIO WEBSITE (Highly Recommended)**",
+                value="• **Personal Website** - Your portfolio/projects showcase\n• **GitHub Pages** - Your coding portfolio\n• **Portfolio Site** - Any personal website",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🔗 Other Social Platforms",
+                value="• **GitHub** - Your coding projects\n• **LinkedIn** - Professional profile\n• **YouTube** - Your channel\n• **Spotify** - Music profile",
                 inline=False
             )
             
             embed.add_field(
                 name="💡 Example Response",
-                value="```\nGitHub: github.com/johnsmith\nLinkedIn: linkedin.com/in/johnsmith\nWebsite: johnsmith.dev\n```\nOr simply: `None` if you don't want to share",
+                value="```\nPortfolio: johnsmith.dev\nGitHub: github.com/johnsmith\nLinkedIn: linkedin.com/in/johnsmith\n```\nOr simply: `None` if you don't have any links",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚠️ Important Note",
+                value="**Having a portfolio website may be required for certain features like creating auction listings.** Consider creating one to showcase your projects!",
                 inline=False
             )
             
@@ -533,6 +538,9 @@ class WelcomeSystem(commands.Cog):
             if current_stage == self.STAGE_NAME_CLASS:
                 await self.process_name_class_stage(message, user_input)
                 
+            elif current_stage == self.STAGE_BIRTHDAY:
+                await self.process_birthday_stage(message, user_input)
+                
             elif current_stage == self.STAGE_EMAIL:
                 await self.process_email_stage(message, user_input)
             
@@ -567,7 +575,7 @@ class WelcomeSystem(commands.Cog):
                 )
                 embed.add_field(
                     name="💡 Try Again",
-                    value="Please include your class like:\n• `John Smith, Class 10`\n• `Sarah, Grade 8`\n• `Mike 12th`",
+                    value="Please include your name and class like:\n• `John Smith, Class 10`\n• `Sarah, Grade 8`\n• `Mike 12th`",
                     inline=False
                 )
                 
@@ -603,17 +611,118 @@ class WelcomeSystem(commands.Cog):
                 await message.reply(embed=embed, delete_after=60)
                 return
             
-            # Store name and class, move to email stage
+            # Store name and class, move to birthday stage
             self.pending_users[member.id]["profile"]["name"] = name
             self.pending_users[member.id]["profile"]["class"] = class_number
+            self.pending_users[member.id]["stage"] = self.STAGE_BIRTHDAY
+            
+            # Request birthday
+            await self.send_birthday_request(message, name, class_number)
+            
+        except Exception as e:
+            logger.error(f"Error processing name/class stage: {e}")
+    
+    async def send_birthday_request(self, message: discord.Message, name: str, class_number: str):
+        """Send request for birthday - Stage 2"""
+        try:
+            embed = discord.Embed(
+                title="🎂 Step 2: Your Birthday",
+                description=f"Great! Nice to meet you, **{name}** from Class **{class_number}**!",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📅 Birthday Information",
+                value="Please share your birthday so we can celebrate with you!",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📝 Format",
+                value="Please provide your birthday in **MM-DD** format:",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="💡 Examples",
+                value="• `03-15` (March 15)\n• `12-25` (December 25)\n• `07/04` (July 4)\n• `11/22` (November 22)",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎉 What happens?",
+                value="The Robo Nexus community will be notified on your birthday with a special celebration message!",
+                inline=False
+            )
+            
+            await message.reply(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error sending birthday request: {e}")
+    
+    async def process_birthday_stage(self, message: discord.Message, user_input: str):
+        """Process Stage 2: Birthday"""
+        try:
+            member = message.author
+            birthday_input = user_input.strip()
+            
+            from date_parser import DateParser
+            
+            # Parse the birthday
+            birthday_date = DateParser.parse_birthday(birthday_input)
+            
+            if not birthday_date:
+                embed = discord.Embed(
+                    title="❌ Invalid Birthday Format",
+                    description="I couldn't understand that birthday format.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="📅 Supported Formats",
+                    value=DateParser.get_format_help_text(),
+                    inline=False
+                )
+                embed.add_field(
+                    name="💡 Examples",
+                    value="• `03-15` (March 15)\n• `12/25` (December 25)\n• `07-04` (July 4)",
+                    inline=False
+                )
+                
+                await message.reply(embed=embed, delete_after=60)
+                return
+            
+            # Store birthday and register it in the birthday system
+            self.pending_users[member.id]["profile"]["birthday"] = birthday_date
             self.pending_users[member.id]["stage"] = self.STAGE_EMAIL
+            
+            # Register birthday in the birthday system
+            try:
+                db_manager = self.bot.db_manager
+                await db_manager.register_birthday(member.id, birthday_date)
+                formatted_date = DateParser.format_birthday(birthday_date)
+                logger.info(f"Birthday registered for {member.display_name} during verification: {formatted_date}")
+                
+                # Confirm birthday registration
+                confirm_embed = discord.Embed(
+                    title="🎉 Birthday Registered!",
+                    description=f"Your birthday has been set to **{formatted_date}**",
+                    color=discord.Color.green()
+                )
+                await message.reply(embed=confirm_embed, delete_after=30)
+                
+            except Exception as e:
+                logger.error(f"Error registering birthday during verification: {e}")
+            
+            # Get user's name and class for the email request
+            name = self.pending_users[member.id]["profile"]["name"]
+            class_number = self.pending_users[member.id]["profile"]["class"]
             
             # Request email
             await self.send_email_request(message, name, class_number)
             
         except Exception as e:
-            logger.error(f"Error processing name/class stage: {e}")
-    
+            logger.error(f"Error processing birthday stage: {e}")
+
     async def process_email_stage(self, message: discord.Message, user_input: str):
         """Process Stage 2: Email"""
         try:
@@ -944,6 +1053,106 @@ class WelcomeSystem(commands.Cog):
             channel = interaction.guild.get_channel(self.self_roles_channel_id)
             self_roles_status = f"✅ {channel.mention}" if channel else f"❌ Channel not found (ID: {self.self_roles_channel_id})"
         else:
+            self_roles_status = "❌ Not configured"
+        
+        embed.add_field(
+            name="🎭 Self-Roles Channel",
+            value=self_roles_status,
+            inline=False
+        )
+        
+        # Statistics
+        embed.add_field(
+            name="📊 Statistics",
+            value=f"• **{len(self.pending_users)}** users in verification\n• **{len(self.user_profiles)}** completed profiles",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="birthday_collect", description="Collect birthday data in self-roles channel")
+    @app_commands.describe(date="Your birthday (MM-DD format, e.g., 03-15)")
+    async def birthday_collect(self, interaction: discord.Interaction, date: str):
+        """Collect birthday data from users in self-roles channel"""
+        
+        # Check if this is being used in the self-roles channel
+        if not self.self_roles_channel_id or interaction.channel.id != self.self_roles_channel_id:
+            await interaction.response.send_message(
+                "❌ This command can only be used in the self-roles channel.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from date_parser import DateParser
+            
+            # Parse the birthday
+            birthday = DateParser.parse_birthday(date)
+            
+            if not birthday:
+                embed = discord.Embed(
+                    title="❌ Invalid Date Format",
+                    description="I couldn't understand that date format.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Supported Formats",
+                    value=DateParser.get_format_help_text(),
+                    inline=False
+                )
+                embed.add_field(
+                    name="Examples",
+                    value="• `03-15` (March 15)\n• `12/25` (December 25)\n• `07-04` (July 4)",
+                    inline=False
+                )
+                
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Register the birthday
+            db_manager = self.bot.db_manager
+            success = await db_manager.register_birthday(interaction.user.id, birthday)
+            
+            if success:
+                formatted_date = DateParser.format_birthday(birthday)
+                
+                # Also update user profile if it exists
+                user_id_str = str(interaction.user.id)
+                if user_id_str in self.user_profiles:
+                    self.user_profiles[user_id_str]["birthday"] = birthday.isoformat()
+                    self.save_welcome_data()
+                
+                success_embed = discord.Embed(
+                    title="🎉 Birthday Registered!",
+                    description=f"Your birthday has been set to **{formatted_date}**",
+                    color=discord.Color.green()
+                )
+                success_embed.add_field(
+                    name="What happens next?",
+                    value="• The Robo Nexus community will be notified on your birthday\n• You can update your birthday anytime with this command\n• Birthday celebrations will be posted in the birthday channel",
+                    inline=False
+                )
+                success_embed.set_footer(text="🎂 Happy early birthday from Robo Nexus!")
+                
+                await interaction.followup.send(embed=success_embed, ephemeral=True)
+                logger.info(f"Birthday registered via self-roles for {interaction.user.display_name}: {formatted_date}")
+                
+            else:
+                error_embed = discord.Embed(
+                    title="❌ Registration Failed",
+                    description="There was an error saving your birthday. Please try again.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=error_embed, ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error in birthday_collect command: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred while registering your birthday. Please try again.",
+                ephemeral=True
+            )
             self_roles_status = "❌ Not configured"
         
         embed.add_field(

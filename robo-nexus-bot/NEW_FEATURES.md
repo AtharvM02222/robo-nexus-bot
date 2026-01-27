@@ -14,7 +14,7 @@
 
 **Use cases:**
 - Share member list with teachers/coordinators
-- Backup member data
+- Export member data
 - Analyze member demographics
 - Create mailing lists
 

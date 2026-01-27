@@ -14,42 +14,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 async def main():
-    """Main function to start the Robo Nexus Birthday Bot with simple backup protection"""
+    """Main function to start the Robo Nexus Birthday Bot"""
     try:
-        # Simple backup check - look for common backup folders
-        backup_folders = []
-        import os
-        for folder in ['my_backup', 'backup', 'data_backup']:
-            if os.path.exists(folder):
-                backup_folders.append(folder)
-        
-        if backup_folders:
-            print(f"📁 Found backup folder(s): {', '.join(backup_folders)}")
-            
-            # Check if we're missing databases and have backups
-            missing_files = []
-            for db_file in ['birthdays.db', 'user_profiles.json', 'analytics.json']:
-                if not os.path.exists(db_file):
-                    missing_files.append(db_file)
-            
-            if missing_files and backup_folders:
-                print(f"⚠️  Missing files detected: {missing_files}")
-                print(f"💡 To restore, run: cp {backup_folders[0]}/* .")
-        
-        # Show current database status
-        db_files = []
-        for pattern in ['*.db', '*.json']:
-            import glob
-            db_files.extend(glob.glob(pattern))
-        
-        if db_files:
-            print(f"📊 Current database files: {len(db_files)} found")
-            for db_file in sorted(db_files):
-                size = os.path.getsize(db_file)
-                print(f"  • {db_file} ({size} bytes)")
-        else:
-            print("📊 No database files found (fresh installation)")
-        
         # Validate configuration
         Config.validate()
         logger.info("Configuration validated successfully")

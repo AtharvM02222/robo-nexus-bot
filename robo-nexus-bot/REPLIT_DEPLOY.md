@@ -183,7 +183,7 @@
 - Watch for error messages
 - Monitor bot's Discord status
 
-### **Backup Your Code:**
+### **Version Control:**
 - Replit has built-in version control
 - Download files periodically
 - Consider syncing with GitHub

@@ -94,7 +94,7 @@ class RoboNexusBirthdayBot(commands.Bot):
         # Set bot status
         activity = discord.Activity(
             type=discord.ActivityType.watching,
-            name="for birthdays 🎂"
+            name="For Robo Nexus :rx:"
         )
         await self.change_presence(activity=activity)
         
