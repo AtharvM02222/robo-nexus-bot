@@ -1,5 +1,5 @@
 """
-Welcome System for Robo Nexus Birthday Bot
+Welcome System for Robo Nexus Bot
 Handles new member onboarding with name, class, email, and social links collection
 """
 import discord
