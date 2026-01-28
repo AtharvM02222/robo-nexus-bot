@@ -16,6 +16,7 @@ class Config:
     
     # Database Configuration
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'birthdays.db')
+    DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:password@helium/heliumdb?sslmode=disable')
     
     # Bot Configuration
     BOT_NAME = os.getenv('BOT_NAME', 'Robo Nexus')
