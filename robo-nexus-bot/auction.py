@@ -1,53 +1,313 @@
 """
-Robo Nexus Auction System
+Robo Nexus Auction System - PostgreSQL Version
 Marketplace for robotics equipment - buy, sell, and bid on items
 """
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import logging
-import json
-import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import asyncio
+from postgres_db import get_db
 
 logger = logging.getLogger(__name__)
 
-AUCTION_DATA_FILE = "auction_data.json"
-AUCTION_REQUESTS_FILE = "auction_requests.json"
-
-class AuctionRequest:
-    """Represents a product request from buyers"""
-    def __init__(self, data: dict):
-        self.id = data.get("id")
-        self.title = data.get("title")
-        self.description = data.get("description")
-        self.max_budget = data.get("max_budget")
-        self.category = data.get("category", "Other")
-        self.condition_preference = data.get("condition_preference", "Any")
-        self.requester_id = data.get("requester_id")
-        self.created_at = data.get("created_at")
-        self.status = data.get("status", "active")  # active, fulfilled, closed
-        self.interested_sellers = data.get("interested_sellers", [])
-        self.message_id = data.get("message_id")
-        self.channel_id = data.get("channel_id")
+class AuctionSystem(commands.Cog):
+    """Auction system for buying and selling robotics equipment"""
     
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "description": self.description,
-            "max_budget": self.max_budget,
-            "category": self.category,
-            "condition_preference": self.condition_preference,
-            "requester_id": self.requester_id,
-            "created_at": self.created_at,
-            "status": self.status,
-            "interested_sellers": self.interested_sellers,
-            "message_id": self.message_id,
-            "channel_id": self.channel_id
-        }
+    def __init__(self, bot):
+        self.bot = bot
+        self.db = get_db()
+        
+    async def get_auction_channel(self):
+        """Get the auction channel"""
+        channel_id = self.db.get_setting('auction_channel_id')
+        if channel_id:
+            return self.bot.get_channel(int(channel_id))
+        return None
+    
+    @app_commands.command(name="auction_create", description="Create a new auction listing")
+    @app_commands.describe(
+        product_name="Name of the product you're selling",
+        starting_price="Starting bid price (₹)",
+        description="Detailed description of the product",
+        category="Product category",
+        condition="Product condition",
+        buy_now_price="Optional instant buy price (₹)",
+        image_url="Optional image URL"
+    )
+    async def auction_create(
+        self,
+        interaction: discord.Interaction,
+        product_name: str,
+        starting_price: float,
+        description: str = "",
+        category: str = "Other",
+        condition: str = "Used - Good",
+        buy_now_price: Optional[float] = None,
+        image_url: Optional[str] = None
+    ):
+        """Create a new auction"""
+        try:
+            # Validate inputs
+            if starting_price <= 0:
+                await interaction.response.send_message("❌ Starting price must be greater than 0!", ephemeral=True)
+                return
+            
+            if buy_now_price and buy_now_price <= starting_price:
+                await interaction.response.send_message("❌ Buy now price must be higher than starting price!", ephemeral=True)
+                return
+            
+            # Create auction data
+            auction_data = {
+                'seller_id': str(interaction.user.id),
+                'seller_name': interaction.user.display_name,
+                'product_name': product_name,
+                'description': description,
+                'starting_price': starting_price,
+                'current_price': starting_price,
+                'buy_now_price': buy_now_price,
+                'category': category,
+                'condition': condition,
+                'image_url': image_url,
+                'duration': 'forever',
+                'end_time': None
+            }
+            
+            # Create auction in database
+            auction_id = self.db.create_auction(auction_data)
+            
+            # Create auction embed
+            embed = discord.Embed(
+                title="✅ Auction Created!",
+                description=f"**{product_name}** is now listed in auction",
+                color=0x00ff00
+            )
+            embed.add_field(name="Auction ID", value=f"#{auction_id}", inline=True)
+            embed.add_field(name="Starting Price", value=f"₹{starting_price:,.2f}", inline=True)
+            embed.add_field(name="Duration", value="🔄 Runs Forever", inline=True)
+            
+            await interaction.response.send_message(embed=embed)
+            
+            # Post auction in auction channel
+            await self.post_auction_listing(auction_id)
+            
+        except Exception as e:
+            logger.error(f"Error creating auction: {e}")
+            await interaction.response.send_message("❌ Failed to create auction. Please try again.", ephemeral=True)
+    
+    async def post_auction_listing(self, auction_id: int):
+        """Post auction listing in the auction channel"""
+        try:
+            auction = self.db.get_auction(auction_id)
+            if not auction:
+                return
+            
+            channel = await self.get_auction_channel()
+            if not channel:
+                return
+            
+            # Create auction listing embed
+            embed = discord.Embed(
+                title=f"🟢 {auction['product_name']}",
+                description=auction['description'] or "No description provided",
+                color=0x00ff00
+            )
+            
+            # Add auction details
+            embed.add_field(name="💰 Current Price", value=f"₹{auction['current_price']:,.2f}", inline=True)
+            if auction['buy_now_price']:
+                embed.add_field(name="⚡ Buy Now", value=f"₹{auction['buy_now_price']:,.2f}", inline=True)
+            embed.add_field(name="📋 Details", value=f"**Category:** {auction['category']}\n**Condition:** {auction['condition']}", inline=True)
+            
+            embed.add_field(name="⏰ Duration", value="🔄 Runs Forever", inline=False)
+            
+            embed.add_field(
+                name="📝 How to Bid",
+                value=f"Use `/bid {auction_id} <amount>` to place a bid!\nMinimum bid: ₹{auction['current_price']:,.2f}",
+                inline=False
+            )
+            
+            if auction['buy_now_price']:
+                embed.add_field(
+                    name="⚡ Instant Buy",
+                    value=f"Use `/buy_now {auction_id}` to buy instantly for ₹{auction['buy_now_price']:,.2f}",
+                    inline=False
+                )
+            
+            if auction['image_url']:
+                embed.set_image(url=auction['image_url'])
+            
+            embed.set_footer(text=f"Listed by {auction['seller_name']} • Auction #{auction_id} • 0 bid(s)")
+            
+            await channel.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error posting auction listing: {e}")
+    
+    @app_commands.command(name="auction_list", description="View all active auctions")
+    async def auction_list(self, interaction: discord.Interaction):
+        """List all active auctions"""
+        try:
+            auctions = self.db.get_all_auctions('active')
+            
+            if not auctions:
+                embed = discord.Embed(
+                    title="📋 Active Auctions",
+                    description="No active auctions found.",
+                    color=0x808080
+                )
+                await interaction.response.send_message(embed=embed)
+                return
+            
+            embed = discord.Embed(
+                title="📋 Active Auctions",
+                description=f"Found {len(auctions)} active auction(s)",
+                color=0x0099ff
+            )
+            
+            for auction in auctions[:10]:  # Show first 10
+                bids = self.db.get_auction_bids(auction['id'])
+                bid_count = len(bids)
+                
+                embed.add_field(
+                    name=f"#{auction['id']} - {auction['product_name']}",
+                    value=f"💰 ₹{auction['current_price']:,.2f} • 🏷️ {auction['category']} • 📊 {bid_count} bid(s)",
+                    inline=False
+                )
+            
+            if len(auctions) > 10:
+                embed.set_footer(text=f"Showing first 10 of {len(auctions)} auctions")
+            
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error listing auctions: {e}")
+            await interaction.response.send_message("❌ Failed to load auctions.", ephemeral=True)
+    
+    @app_commands.command(name="auction_view", description="View detailed information about an auction")
+    @app_commands.describe(auction_id="ID of the auction to view")
+    async def auction_view(self, interaction: discord.Interaction, auction_id: int):
+        """View detailed auction information"""
+        try:
+            auction = self.db.get_auction(auction_id)
+            if not auction:
+                await interaction.response.send_message("❌ Auction not found!", ephemeral=True)
+                return
+            
+            bids = self.db.get_auction_bids(auction_id)
+            
+            embed = discord.Embed(
+                title=f"🔍 Auction #{auction_id} - {auction['product_name']}",
+                description=auction['description'] or "No description provided",
+                color=0x0099ff
+            )
+            
+            embed.add_field(name="💰 Current Price", value=f"₹{auction['current_price']:,.2f}", inline=True)
+            if auction['buy_now_price']:
+                embed.add_field(name="⚡ Buy Now", value=f"₹{auction['buy_now_price']:,.2f}", inline=True)
+            embed.add_field(name="📊 Total Bids", value=str(len(bids)), inline=True)
+            
+            embed.add_field(name="🏷️ Category", value=auction['category'], inline=True)
+            embed.add_field(name="🔧 Condition", value=auction['condition'], inline=True)
+            embed.add_field(name="👤 Seller", value=auction['seller_name'], inline=True)
+            
+            if bids:
+                recent_bids = bids[:5]  # Show last 5 bids
+                bid_text = "\n".join([
+                    f"₹{bid['amount']:,.2f} by {bid['bidder_name']}"
+                    for bid in recent_bids
+                ])
+                embed.add_field(name="📈 Recent Bids", value=bid_text, inline=False)
+            
+            if auction['image_url']:
+                embed.set_image(url=auction['image_url'])
+            
+            embed.set_footer(text=f"Created: {auction['created_at'].strftime('%Y-%m-%d %H:%M')}")
+            
+            await interaction.response.send_message(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error viewing auction: {e}")
+            await interaction.response.send_message("❌ Failed to load auction details.", ephemeral=True)
+    
+    @app_commands.command(name="bid", description="Place a bid on an auction")
+    @app_commands.describe(
+        auction_id="ID of the auction to bid on",
+        amount="Your bid amount (₹)"
+    )
+    async def bid(self, interaction: discord.Interaction, auction_id: int, amount: float):
+        """Place a bid on an auction"""
+        try:
+            auction = self.db.get_auction(auction_id)
+            if not auction:
+                await interaction.response.send_message("❌ Auction not found!", ephemeral=True)
+                return
+            
+            if auction['status'] != 'active':
+                await interaction.response.send_message("❌ This auction is no longer active!", ephemeral=True)
+                return
+            
+            if str(interaction.user.id) == auction['seller_id']:
+                await interaction.response.send_message("❌ You cannot bid on your own auction!", ephemeral=True)
+                return
+            
+            if amount <= auction['current_price']:
+                await interaction.response.send_message(
+                    f"❌ Bid must be higher than current price of ₹{auction['current_price']:,.2f}!",
+                    ephemeral=True
+                )
+                return
+            
+            # Place the bid
+            success = self.db.place_bid(
+                auction_id,
+                str(interaction.user.id),
+                interaction.user.display_name,
+                amount
+            )
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Bid Placed!",
+                    description=f"Your bid of ₹{amount:,.2f} on **{auction['product_name']}** has been placed!",
+                    color=0x00ff00
+                )
+                embed.add_field(name="Auction ID", value=f"#{auction_id}", inline=True)
+                embed.add_field(name="Your Bid", value=f"₹{amount:,.2f}", inline=True)
+                
+                await interaction.response.send_message(embed=embed)
+                
+                # Update auction listing if possible
+                await self.update_auction_listing(auction_id)
+                
+            else:
+                await interaction.response.send_message("❌ Failed to place bid. Please try again.", ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error placing bid: {e}")
+            await interaction.response.send_message("❌ Failed to place bid.", ephemeral=True)
+    
+    async def update_auction_listing(self, auction_id: int):
+        """Update the auction listing message with new bid information"""
+        # This would require storing message IDs, which we can implement later
+        pass
+    
+    @app_commands.command(name="my_auctions", description="View your active auctions")
+    async def my_auctions(self, interaction: discord.Interaction):
+        """View user's active auctions"""
+        try:
+            # Get user's auctions from database
+            # This requires a custom query, let me add it to the database handler
+            await interaction.response.send_message("🔧 This feature will be implemented soon!", ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error getting user auctions: {e}")
+            await interaction.response.send_message("❌ Failed to load your auctions.", ephemeral=True)
+
+async def setup(bot):
+    await bot.add_cog(AuctionSystem(bot))
 
 class AuctionItem:
     """Represents an auction item"""
