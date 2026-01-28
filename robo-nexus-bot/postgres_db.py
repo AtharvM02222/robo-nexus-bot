@@ -1,19 +1,20 @@
 """
 PostgreSQL Database Handler for Robo Nexus Bot
-Handles all database operations for auctions, bids, and requests
+Handles all database operations for auctions, bids, birthdays, and more
 """
 import psycopg2
 import psycopg2.extras
 import json
 import logging
+import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
 logger = logging.getLogger(__name__)
 
 class PostgreSQLHandler:
-    def __init__(self, database_url: str):
-        self.database_url = database_url
+    def __init__(self):
+        self.database_url = os.getenv('DATABASE_URL', 'postgresql://postgres:password@helium/heliumdb?sslmode=disable')
         self.connection = None
         self.connect()
         self.create_tables()
@@ -42,7 +43,7 @@ class PostgreSQLHandler:
                 )
             """)
             
-            # User profiles table (for welcome system)
+            # User profiles table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id VARCHAR(20) PRIMARY KEY,
@@ -82,15 +83,6 @@ class PostgreSQLHandler:
                 )
             """)
             
-            # Deploy info table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS deploy_info (
-                    key VARCHAR(50) PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
             # Auctions table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS auctions (
@@ -124,47 +116,13 @@ class PostgreSQLHandler:
                 )
             """)
             
-            # Auction requests table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS auction_requests (
-                    id SERIAL PRIMARY KEY,
-                    requester_id VARCHAR(20) NOT NULL,
-                    requester_name VARCHAR(100) NOT NULL,
-                    product_name VARCHAR(200) NOT NULL,
-                    description TEXT,
-                    budget DECIMAL(10,2),
-                    category VARCHAR(50),
-                    status VARCHAR(20) DEFAULT 'open',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Seller interests table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS seller_interests (
-                    id SERIAL PRIMARY KEY,
-                    request_id INTEGER REFERENCES auction_requests(id) ON DELETE CASCADE,
-                    seller_id VARCHAR(20) NOT NULL,
-                    seller_name VARCHAR(100) NOT NULL,
-                    message TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Settings table for configuration
+            # Settings table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS bot_settings (
                     key VARCHAR(50) PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
-            
-            # Insert default settings
-            cursor.execute("""
-                INSERT INTO bot_settings (key, value) 
-                VALUES ('auction_channel_id', '1458741960134230091')
-                ON CONFLICT (key) DO NOTHING
             """)
             
             cursor.close()
@@ -179,6 +137,61 @@ class PostgreSQLHandler:
         if not self.connection or self.connection.closed:
             self.connect()
         return self.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    # Birthday methods
+    def add_birthday(self, user_id: str, birthday: str) -> bool:
+        """Add or update a user's birthday"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO birthdays (user_id, birthday) VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET birthday = %s
+            """, (user_id, birthday, birthday))
+            cursor.close()
+            return True
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to add birthday: {e}")
+            return False
+    
+    def get_birthday(self, user_id: str) -> Optional[str]:
+        """Get a user's birthday"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("SELECT birthday FROM birthdays WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            cursor.close()
+            return result['birthday'] if result else None
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to get birthday: {e}")
+            return None
+    
+    def get_all_birthdays(self) -> List[Dict[str, Any]]:
+        """Get all birthdays"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("SELECT * FROM birthdays ORDER BY registered_at")
+            birthdays = cursor.fetchall()
+            cursor.close()
+            return [dict(birthday) for birthday in birthdays]
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to get birthdays: {e}")
+            return []
+    
+    def delete_birthday(self, user_id: str) -> bool:
+        """Delete a user's birthday"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("DELETE FROM birthdays WHERE user_id = %s", (user_id,))
+            success = cursor.rowcount > 0
+            cursor.close()
+            return success
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to delete birthday: {e}")
+            return False
     
     # Auction methods
     def create_auction(self, auction_data: Dict[str, Any]) -> int:
@@ -198,7 +211,6 @@ class PostgreSQLHandler:
             auction_id = cursor.fetchone()['id']
             cursor.close()
             return auction_id
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to create auction: {e}")
@@ -212,7 +224,6 @@ class PostgreSQLHandler:
             auction = cursor.fetchone()
             cursor.close()
             return dict(auction) if auction else None
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get auction: {e}")
@@ -226,49 +237,11 @@ class PostgreSQLHandler:
             auctions = cursor.fetchall()
             cursor.close()
             return [dict(auction) for auction in auctions]
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get auctions: {e}")
             return []
     
-    def update_auction(self, auction_id: int, updates: Dict[str, Any]) -> bool:
-        """Update auction fields"""
-        cursor = self.get_cursor()
-        try:
-            # Build dynamic update query
-            set_clause = ", ".join([f"{key} = %({key})s" for key in updates.keys()])
-            updates['auction_id'] = auction_id
-            
-            cursor.execute(f"""
-                UPDATE auctions SET {set_clause} 
-                WHERE id = %(auction_id)s
-            """, updates)
-            
-            success = cursor.rowcount > 0
-            cursor.close()
-            return success
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to update auction: {e}")
-            return False
-    
-    def delete_auction(self, auction_id: int) -> bool:
-        """Delete auction"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("DELETE FROM auctions WHERE id = %s", (auction_id,))
-            success = cursor.rowcount > 0
-            cursor.close()
-            return success
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to delete auction: {e}")
-            return False
-    
-    # Bid methods
     def place_bid(self, auction_id: int, bidder_id: str, bidder_name: str, amount: float) -> bool:
         """Place a bid on an auction"""
         cursor = self.get_cursor()
@@ -286,7 +259,6 @@ class PostgreSQLHandler:
             
             cursor.close()
             return True
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to place bid: {e}")
@@ -302,101 +274,10 @@ class PostgreSQLHandler:
             bids = cursor.fetchall()
             cursor.close()
             return [dict(bid) for bid in bids]
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get bids: {e}")
             return []
-    
-    # Settings methods
-    def get_setting(self, key: str) -> Optional[str]:
-        """Get a bot setting"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("SELECT value FROM bot_settings WHERE key = %s", (key,))
-            result = cursor.fetchone()
-            cursor.close()
-            return result['value'] if result else None
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to get setting: {e}")
-            return None
-    
-    def set_setting(self, key: str, value: str) -> bool:
-        """Set a bot setting"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO bot_settings (key, value) VALUES (%s, %s)
-                ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP
-            """, (key, value, value))
-            cursor.close()
-            return True
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to set setting: {e}")
-            return False
-    
-    # Birthday methods
-    def add_birthday(self, user_id: str, birthday: str) -> bool:
-        """Add or update a user's birthday"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO birthdays (user_id, birthday) VALUES (%s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET birthday = %s
-            """, (user_id, birthday, birthday))
-            cursor.close()
-            return True
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to add birthday: {e}")
-            return False
-    
-    def get_birthday(self, user_id: str) -> Optional[str]:
-        """Get a user's birthday"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("SELECT birthday FROM birthdays WHERE user_id = %s", (user_id,))
-            result = cursor.fetchone()
-            cursor.close()
-            return result['birthday'] if result else None
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to get birthday: {e}")
-            return None
-    
-    def get_all_birthdays(self) -> List[Dict[str, Any]]:
-        """Get all birthdays"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("SELECT * FROM birthdays ORDER BY registered_at")
-            birthdays = cursor.fetchall()
-            cursor.close()
-            return [dict(birthday) for birthday in birthdays]
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to get birthdays: {e}")
-            return []
-    
-    def delete_birthday(self, user_id: str) -> bool:
-        """Delete a user's birthday"""
-        cursor = self.get_cursor()
-        try:
-            cursor.execute("DELETE FROM birthdays WHERE user_id = %s", (user_id,))
-            success = cursor.rowcount > 0
-            cursor.close()
-            return success
-            
-        except Exception as e:
-            cursor.close()
-            logger.error(f"Failed to delete birthday: {e}")
-            return False
     
     # User profile methods
     def create_user_profile(self, user_data: Dict[str, Any]) -> bool:
@@ -422,7 +303,6 @@ class PostgreSQLHandler:
             """, user_data)
             cursor.close()
             return True
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to create user profile: {e}")
@@ -436,7 +316,6 @@ class PostgreSQLHandler:
             profile = cursor.fetchone()
             cursor.close()
             return dict(profile) if profile else None
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get user profile: {e}")
@@ -448,7 +327,6 @@ class PostgreSQLHandler:
         try:
             set_clause = ", ".join([f"{key} = %({key})s" for key in updates.keys()])
             updates['user_id'] = user_id
-            updates['updated_at'] = 'CURRENT_TIMESTAMP'
             
             cursor.execute(f"""
                 UPDATE user_profiles SET {set_clause}, updated_at = CURRENT_TIMESTAMP
@@ -458,7 +336,6 @@ class PostgreSQLHandler:
             success = cursor.rowcount > 0
             cursor.close()
             return success
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to update user profile: {e}")
@@ -476,7 +353,6 @@ class PostgreSQLHandler:
             """, (user_id, stage, json.dumps(data), stage, json.dumps(data)))
             cursor.close()
             return True
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to set welcome data: {e}")
@@ -498,7 +374,6 @@ class PostgreSQLHandler:
                     'updated_at': result['updated_at']
                 }
             return None
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get welcome data: {e}")
@@ -512,7 +387,6 @@ class PostgreSQLHandler:
             success = cursor.rowcount > 0
             cursor.close()
             return success
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to delete welcome data: {e}")
@@ -528,7 +402,6 @@ class PostgreSQLHandler:
             """, (event_type, user_id, json.dumps(data) if data else None))
             cursor.close()
             return True
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to log analytics: {e}")
@@ -551,11 +424,39 @@ class PostgreSQLHandler:
             analytics = cursor.fetchall()
             cursor.close()
             return [dict(analytic) for analytic in analytics]
-            
         except Exception as e:
             cursor.close()
             logger.error(f"Failed to get analytics: {e}")
             return []
+    
+    # Settings methods
+    def get_setting(self, key: str) -> Optional[str]:
+        """Get a bot setting"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("SELECT value FROM bot_settings WHERE key = %s", (key,))
+            result = cursor.fetchone()
+            cursor.close()
+            return result['value'] if result else None
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to get setting: {e}")
+            return None
+    
+    def set_setting(self, key: str, value: str) -> bool:
+        """Set a bot setting"""
+        cursor = self.get_cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO bot_settings (key, value) VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP
+            """, (key, value, value))
+            cursor.close()
+            return True
+        except Exception as e:
+            cursor.close()
+            logger.error(f"Failed to set setting: {e}")
+            return False
 
 # Global database instance
 db = None
@@ -564,7 +465,5 @@ def get_db() -> PostgreSQLHandler:
     """Get database instance"""
     global db
     if db is None:
-        from config import Config
-        database_url = Config.DATABASE_URL
-        db = PostgreSQLHandler(database_url)
+        db = PostgreSQLHandler()
     return db

@@ -35,7 +35,6 @@ class BirthdayDatabase:
         """Get all birthdays"""
         try:
             birthdays = self.db.get_all_birthdays()
-            # Convert to expected format
             return [
                 {
                     'user_id': int(b['user_id']),
@@ -87,7 +86,6 @@ class UserProfileDatabase:
     def create_profile(self, user_data: Dict[str, Any]) -> bool:
         """Create or update user profile"""
         try:
-            # Convert user_id to string if it's an int
             if 'user_id' in user_data and isinstance(user_data['user_id'], int):
                 user_data['user_id'] = str(user_data['user_id'])
             
