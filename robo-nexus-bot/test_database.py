@@ -4,7 +4,7 @@ Run this to verify your database setup is working
 """
 import asyncio
 from datetime import date
-from database import DatabaseManager
+from database import birthday_db
 from date_parser import DateParser
 
 async def test_database():
@@ -12,8 +12,7 @@ async def test_database():
     print("🧪 Testing Robo Nexus Birthday Bot Database...")
     
     # Initialize database
-    db = DatabaseManager()
-    await db.init_database()
+    db = birthday_db
     print("✅ Database initialized")
     
     # Test date parsing

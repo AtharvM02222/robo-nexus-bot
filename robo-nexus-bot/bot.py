@@ -10,7 +10,7 @@ import asyncio
 from typing import Optional
 
 from config import Config
-from database import DatabaseManager
+from database import birthday_db
 from date_parser import DateParser
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class RoboNexusBirthdayBot(commands.Bot):
         )
         
         # Initialize components
-        self.db_manager = DatabaseManager()
+        self.db_manager = birthday_db
         self.scheduler_started = False
         
         logger.info("Robo Nexus Birthday Bot initialized")
@@ -44,9 +44,8 @@ class RoboNexusBirthdayBot(commands.Bot):
     async def setup_hook(self):
         """Called when the bot is starting up"""
         try:
-            # Initialize database
-            await self.db_manager.init_database()
-            logger.info("Database initialized successfully")
+            # Database is already initialized in postgres_db.py
+            logger.info("Database connection ready")
             
             # Load command cogs
             await self.load_extension('commands')
@@ -125,8 +124,10 @@ class RoboNexusBirthdayBot(commands.Bot):
         try:
             logger.info("Running daily birthday check...")
             
-            # Get today's birthdays
-            todays_birthdays = await self.db_manager.get_todays_birthdays()
+            # Get today's birthdays using synchronous method
+            from datetime import date
+            today_str = date.today().strftime("%m-%d")
+            todays_birthdays = self.db_manager.get_birthdays_today(today_str)
             
             if not todays_birthdays:
                 logger.info("No birthdays today")
@@ -147,54 +148,40 @@ class RoboNexusBirthdayBot(commands.Bot):
         
         Args:
             guild: Discord guild object
-            birthdays: List of (user_id, birthday_date) tuples
+            birthdays: List of birthday dictionaries
         """
         try:
-            # Get configured birthday channel for this guild
-            channel_id = await self.db_manager.get_birthday_channel(guild.id)
+            # For now, use a default channel (you can configure this later)
+            birthday_channel = None
             
-            if not channel_id:
-                logger.warning(f"No birthday channel configured for guild {guild.name}")
-                return
-            
-            # Get the birthday channel
-            birthday_channel = guild.get_channel(channel_id)
-            if not birthday_channel:
-                logger.error(f"Birthday channel {channel_id} not found in guild {guild.name}")
-                return
-            
-            # Try to find announcements channel
-            announcements_channel = None
+            # Look for a suitable channel
             for channel in guild.text_channels:
-                if 'announcement' in channel.name.lower() or 'announce' in channel.name.lower():
-                    announcements_channel = channel
+                if any(keyword in channel.name.lower() for keyword in ['birthday', 'celebration', 'general']):
+                    birthday_channel = channel
                     break
             
+            if not birthday_channel:
+                logger.warning(f"No suitable birthday channel found in guild {guild.name}")
+                return
+            
             # Send birthday message for each user
-            for user_id, birthday_date in birthdays:
+            for birthday_info in birthdays:
                 try:
-                    # Get the user from the guild (use fetch for reliability)
+                    user_id = birthday_info['user_id']
+                    
+                    # Get the user from the guild
                     try:
                         member = await guild.fetch_member(user_id)
                     except:
                         member = guild.get_member(user_id)
                     
                     if member:
-                        # Create birthday message with @everyone tag
-                        birthday_message = f"@everyone\n\n🎉🎂 **HAPPY BIRTHDAY {member.mention}!** 🎂🎉\n\nEveryone wish them a fantastic day! 🎈🎁🥳"
+                        # Create birthday message
+                        birthday_message = f"🎉🎂 **HAPPY BIRTHDAY {member.mention}!** 🎂🎉\n\nEveryone wish them a fantastic day! 🎈🎁🥳"
                         
                         # Send to birthday channel
                         await birthday_channel.send(birthday_message)
                         logger.info(f"Birthday message sent for {member.display_name} in {guild.name}")
-                        
-                        # Also send to announcements channel if found
-                        if announcements_channel and announcements_channel.id != birthday_channel.id:
-                            try:
-                                announcement_msg = f"@everyone\n\n🎂 **Birthday Alert!** 🎂\n\nToday is **{member.display_name}**'s birthday! Head over to {birthday_channel.mention} to wish them! 🎉"
-                                await announcements_channel.send(announcement_msg)
-                                logger.info(f"Birthday announcement sent to {announcements_channel.name}")
-                            except Exception as e:
-                                logger.warning(f"Could not send to announcements channel: {e}")
                         
                         # Add a small delay between messages to avoid rate limits
                         await asyncio.sleep(1)
@@ -278,10 +265,6 @@ class RoboNexusBirthdayBot(commands.Bot):
         # Stop the birthday scheduler
         if hasattr(self, 'daily_birthday_check'):
             self.daily_birthday_check.cancel()
-        
-        # Close database connections
-        if hasattr(self, 'db_manager'):
-            await self.db_manager.close()
         
         # Close the bot
         await super().close()
