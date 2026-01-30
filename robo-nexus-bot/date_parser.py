@@ -101,17 +101,32 @@ class DateParser:
             return False
     
     @classmethod
-    def format_birthday(cls, birthday: date) -> str:
+    def format_birthday(cls, birthday) -> str:
         """
         Format a birthday date for display
         
         Args:
-            birthday: Date object
+            birthday: Date object or string in MM-DD format
             
         Returns:
             Formatted string (e.g., "March 15")
         """
-        return birthday.strftime("%B %d")
+        # If it's already a date object, format it directly
+        if isinstance(birthday, date):
+            return birthday.strftime("%B %d")
+        
+        # If it's a string (from database), parse it first
+        if isinstance(birthday, str):
+            # Parse MM-DD format string
+            parsed_date = cls.parse_birthday(birthday)
+            if parsed_date:
+                return parsed_date.strftime("%B %d")
+            else:
+                # Fallback: return the string as-is if parsing fails
+                return birthday
+        
+        # Fallback for unexpected types
+        return str(birthday)
     
     @classmethod
     def get_supported_formats(cls) -> List[str]:

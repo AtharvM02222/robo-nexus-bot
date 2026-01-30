@@ -18,9 +18,15 @@ class BirthdayDatabase:
     def add_birthday(self, user_id: int, birthday: str) -> bool:
         """Add a birthday to the database"""
         try:
-            return self.db.register_birthday(str(user_id), birthday)
+            logger.info(f"🎂 [database.py] Adding birthday for user_id: {user_id}, birthday: {birthday}")
+            result = self.db.register_birthday(str(user_id), birthday)
+            if result:
+                logger.info(f"✅ [database.py] Birthday added successfully for user_id: {user_id}")
+            else:
+                logger.error(f"❌ [database.py] Failed to add birthday for user_id: {user_id}")
+            return result
         except Exception as e:
-            logger.error(f"Error adding birthday: {e}")
+            logger.error(f"💥 [database.py] Error adding birthday: {e}")
             return False
     
     def get_birthday(self, user_id: int) -> Optional[str]:

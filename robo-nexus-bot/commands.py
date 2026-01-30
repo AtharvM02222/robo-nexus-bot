@@ -50,8 +50,11 @@ class BirthdayCommands(commands.Cog):
                 await interaction.followup.send(embed=error_embed)
                 return
             
+            # Convert date object to MM-DD string format for database
+            birthday_string = birthday.strftime('%m-%d')
+            
             # Register the birthday in birthdays table
-            success = self.db.add_birthday(interaction.user.id, birthday)
+            success = self.db.add_birthday(interaction.user.id, birthday_string)
             
             # Also update user profile if it exists
             try:
@@ -59,8 +62,8 @@ class BirthdayCommands(commands.Cog):
                 supabase = get_supabase_api()
                 profile = supabase.get_user_profile(str(interaction.user.id))
                 if profile:
-                    # Update the birthday in user profile too
-                    supabase.update_user_profile(str(interaction.user.id), {"birthday": birthday})
+                    # Update the birthday in user profile too (use string format)
+                    supabase.update_user_profile(str(interaction.user.id), {"birthday": birthday_string})
                     logger.info(f"Updated birthday in user profile for {interaction.user.display_name}")
             except Exception as e:
                 logger.error(f"Error updating user profile birthday: {e}")

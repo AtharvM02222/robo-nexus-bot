@@ -745,12 +745,16 @@ class WelcomeSystem(commands.Cog):
             
             # Register birthday in BOTH the birthday system AND user profile
             try:
+                # Convert date object to MM-DD string format for database
+                birthday_string = birthday_date.strftime('%m-%d')
+                
                 # Save to birthdays table
                 from database import add_birthday
-                birthday_success = add_birthday(str(member.id), birthday_date)
+                birthday_success = add_birthday(member.id, birthday_string)
                 
                 # Also save to user_profiles table (update the pending profile)
                 # This will be saved when the profile is completed
+                self.pending_users[member.id]["profile"]["birthday"] = birthday_string
                 formatted_date = DateParser.format_birthday(birthday_date)
                 
                 if birthday_success: 
