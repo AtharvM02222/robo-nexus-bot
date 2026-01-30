@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# DO NOT ignore these - they need to persist:
+# birthdays.db - Contains all birthday data
+# auction_data.json - Contains auction data
+# analytics.json - Contains analytics data
+# deploy_info.json - Contains deployment info

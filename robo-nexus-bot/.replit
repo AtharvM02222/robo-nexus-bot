@@ -1,0 +1,13 @@
+run = "bash start.sh"
+modules = ["python-3.11"]
+
+[nix]
+channel = "stable-22_11"
+
+[deployment]
+run = ["bash", "start.sh"]
+deploymentTarget = "cloudrun"
+ignorePorts = false
+
+[env]
+PYTHONPATH = "/home/runner/$REPL_SLUG"
