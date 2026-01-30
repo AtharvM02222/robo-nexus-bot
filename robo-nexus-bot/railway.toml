@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python main.py"
+restartPolicyType = "always"
+
+[variables]
+PYTHONUNBUFFERED = "1"
+NIXPACKS_PYTHON_VERSION = "3.9"

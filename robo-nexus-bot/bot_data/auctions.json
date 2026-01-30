@@ -1,0 +1,62 @@
+{
+  "1": {
+    "id": 1,
+    "seller_id": "1147221423815938179",
+    "seller_name": "AtharvM",
+    "product_name": "CT-6b",
+    "description": "High-quality CT-6b component",
+    "starting_price": 2222.0,
+    "current_price": 2222.0,
+    "buy_now_price": 2499.0,
+    "category": "Electronics",
+    "condition": "Used - Good",
+    "image_url": "https://example.com/ct6b.jpg",
+    "status": "active",
+    "created_at": "2026-01-30T07:29:21.204015"
+  },
+  "2": {
+    "id": 2,
+    "seller_id": "1147221423815938179",
+    "seller_name": "AtharvM",
+    "product_name": "300 rpm johnson motor",
+    "description": "Johnson motor 300 RPM",
+    "starting_price": 1299.0,
+    "current_price": 1299.0,
+    "buy_now_price": 1499.0,
+    "category": "Motors",
+    "condition": "Used - Good",
+    "image_url": "https://example.com/johnson-motor.jpg",
+    "status": "active",
+    "created_at": "2026-01-30T07:29:21.204022"
+  },
+  "3": {
+    "id": 3,
+    "seller_id": "1147221423815938179",
+    "seller_name": "AtharvM",
+    "product_name": "planetary 500rpm",
+    "description": "Planetary gear motor 500 RPM",
+    "starting_price": 1499.0,
+    "current_price": 1499.0,
+    "buy_now_price": 1699.0,
+    "category": "Motors",
+    "condition": "Used - Good",
+    "image_url": "https://example.com/planetary-motor.jpg",
+    "status": "active",
+    "created_at": "2026-01-30T07:29:21.204024"
+  },
+  "4": {
+    "id": 4,
+    "seller_id": "1147221423815938179",
+    "seller_name": "AtharvM",
+    "product_name": "Nylon wheels",
+    "description": "High-quality nylon wheels",
+    "starting_price": 2399.0,
+    "current_price": 2399.0,
+    "buy_now_price": 2599.0,
+    "category": "Parts",
+    "condition": "Used - Good",
+    "image_url": "https://example.com/nylon-wheels.jpg",
+    "status": "active",
+    "created_at": "2026-01-30T07:29:21.204026"
+  }
+}
