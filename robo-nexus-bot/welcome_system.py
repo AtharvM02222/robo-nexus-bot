@@ -1361,10 +1361,6 @@ class WelcomeSystem(commands.Cog):
                 value="Not registered",
                 inline=True
             )
-                    inline=True
-                )
-        except:
-            pass
         
         if profile.get('social_links'):
             # Parse social_links if it's a JSON string
