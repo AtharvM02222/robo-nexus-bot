@@ -1,24 +1,24 @@
 """
-PostgreSQL Database Interface for Robo Nexus Bot
-Replaces the SQLite database.py with PostgreSQL functionality
+Supabase Database Interface for Robo Nexus Bot
+Uses Supabase REST API instead of direct PostgreSQL connections
 """
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from postgres_db import get_db
+from supabase_api import get_supabase_api
 
 logger = logging.getLogger(__name__)
 
 class BirthdayDatabase:
-    """PostgreSQL-based birthday database"""
+    """Supabase-based birthday database"""
     
     def __init__(self):
-        self.db = get_db()
+        self.db = get_supabase_api()
     
     def add_birthday(self, user_id: int, birthday: str) -> bool:
         """Add a birthday to the database"""
         try:
-            return self.db.add_birthday(str(user_id), birthday)
+            return self.db.register_birthday(str(user_id), birthday)
         except Exception as e:
             logger.error(f"Error adding birthday: {e}")
             return False
@@ -39,7 +39,7 @@ class BirthdayDatabase:
                 {
                     'user_id': int(b['user_id']),
                     'birthday': b['birthday'],
-                    'registered_at': b['registered_at']
+                    'registered_at': b.get('registered_at', datetime.now().isoformat())
                 }
                 for b in birthdays
             ]
@@ -50,7 +50,7 @@ class BirthdayDatabase:
     def remove_birthday(self, user_id: int) -> bool:
         """Remove a birthday from the database"""
         try:
-            return self.db.delete_birthday(str(user_id))
+            return self.db.remove_birthday(str(user_id))
         except Exception as e:
             logger.error(f"Error removing birthday: {e}")
             return False
@@ -58,8 +58,7 @@ class BirthdayDatabase:
     def get_birthdays_today(self, today_str: str) -> List[Dict[str, Any]]:
         """Get birthdays for today"""
         try:
-            all_birthdays = self.get_all_birthdays()
-            return [b for b in all_birthdays if b['birthday'] == today_str]
+            return self.db.get_birthdays_today(today_str)
         except Exception as e:
             logger.error(f"Error getting today's birthdays: {e}")
             return []

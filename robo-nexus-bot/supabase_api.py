@@ -38,9 +38,10 @@ class SupabaseAPI:
         
         # Fallback values
         fallbacks = {
-            "welcome_channel_id": "1457389004251992317",
+            "welcome_channel_id": "1460866844285206661",
             "self_roles_channel_id": "1460556204383273148",
-            "auction_channel_id": "1458741960134230091"
+            "auction_channel_id": "1458741960134230091",
+            "birthday_channel_id": "1457389004251992317"
         }
         return fallbacks.get(key)
     
@@ -157,6 +158,128 @@ class SupabaseAPI:
             logger.error(f"Error getting bids: {e}")
         
         return []
+
+    # User profile methods
+    def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/user_profiles?user_id=eq.{user_id}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data[0] if data else None
+        except Exception as e:
+            logger.error(f"Error getting user profile {user_id}: {e}")
+        
+        return None
+    
+    def create_user_profile(self, profile_data: Dict[str, Any]) -> bool:
+        try:
+            response = requests.post(
+                f"{self.url}/rest/v1/user_profiles",
+                headers=self.headers,
+                json=profile_data
+            )
+            
+            return response.status_code == 201
+        except Exception as e:
+            logger.error(f"Error creating user profile: {e}")
+            return False
+    
+    def update_user_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
+        try:
+            response = requests.patch(
+                f"{self.url}/rest/v1/user_profiles?user_id=eq.{user_id}",
+                headers=self.headers,
+                json=updates
+            )
+            
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Error updating user profile {user_id}: {e}")
+            return False
+    
+    # Birthday methods
+    def register_birthday(self, user_id: str, birthday: str) -> bool:
+        try:
+            # Try to update first
+            response = requests.patch(
+                f"{self.url}/rest/v1/birthdays?user_id=eq.{user_id}",
+                headers=self.headers,
+                json={"birthday": birthday}
+            )
+            
+            if response.status_code == 200:
+                return True
+            
+            # If update failed, try insert
+            response = requests.post(
+                f"{self.url}/rest/v1/birthdays",
+                headers=self.headers,
+                json={"user_id": user_id, "birthday": birthday}
+            )
+            
+            return response.status_code == 201
+        except Exception as e:
+            logger.error(f"Error registering birthday for {user_id}: {e}")
+            return False
+    
+    def get_birthday(self, user_id: str) -> Optional[str]:
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/birthdays?user_id=eq.{user_id}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data[0]['birthday'] if data else None
+        except Exception as e:
+            logger.error(f"Error getting birthday for {user_id}: {e}")
+        
+        return None
+    
+    def get_birthdays_today(self, today_str: str) -> List[Dict[str, Any]]:
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/birthdays?birthday=eq.{today_str}",
+                headers=self.headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error getting today's birthdays: {e}")
+        
+        return []
+    
+    def get_all_birthdays(self) -> List[Dict[str, Any]]:
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/birthdays",
+                headers=self.headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            logger.error(f"Error getting all birthdays: {e}")
+        
+        return []
+    
+    def remove_birthday(self, user_id: str) -> bool:
+        try:
+            response = requests.delete(
+                f"{self.url}/rest/v1/birthdays?user_id=eq.{user_id}",
+                headers=self.headers
+            )
+            
+            return response.status_code == 204
+        except Exception as e:
+            logger.error(f"Error removing birthday for {user_id}: {e}")
+            return False
 
 # Global instance
 supabase_api = None
