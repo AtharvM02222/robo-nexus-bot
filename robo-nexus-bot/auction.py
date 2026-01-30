@@ -6,6 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import logging
+import requests
 from datetime import datetime
 from typing import Optional
 from supabase_api import get_supabase_api
@@ -311,14 +312,36 @@ class AuctionSystem(commands.Cog):
             )
             
             if success:
-                cursor = self.db.get_cursor()
-                cursor.execute("UPDATE auctions SET status = 'sold' WHERE id = %s", (auction_id,))
-                cursor.close()
-                
-                await interaction.response.send_message(
-                    f"🎉 You bought **{auction['product_name']}** for ₹{auction['buy_now_price']:,.2f}!"
-                )
-                logger.info(f"Buy now: Auction #{auction_id} sold for ₹{auction['buy_now_price']}")
+                # Update auction status to sold using Supabase API
+                try:
+                    # Get current auction data
+                    auction = self.db.get_auction(auction_id)
+                    if auction:
+                        # Update status to sold
+                        update_response = requests.patch(
+                            f"{self.db.url}/rest/v1/auctions?id=eq.{auction_id}",
+                            headers=self.db.headers,
+                            json={"status": "sold"},
+                            timeout=10
+                        )
+                        
+                        if update_response.status_code == 200:
+                            await interaction.response.send_message(
+                                f"🎉 You bought **{auction['product_name']}** for ₹{auction['buy_now_price']:,.2f}!"
+                            )
+                            logger.info(f"Buy now: Auction #{auction_id} sold for ₹{auction['buy_now_price']}")
+                        else:
+                            logger.error(f"Failed to update auction status: {update_response.status_code}")
+                            await interaction.response.send_message(
+                                f"🎉 You bought **{auction['product_name']}** for ₹{auction['buy_now_price']:,.2f}! (Status update pending)"
+                            )
+                    else:
+                        await interaction.response.send_message("❌ Auction not found after purchase.", ephemeral=True)
+                except Exception as e:
+                    logger.error(f"Error updating auction status: {e}")
+                    await interaction.response.send_message(
+                        f"🎉 Purchase successful, but there was an issue updating the auction status."
+                    )
             else:
                 await interaction.response.send_message("❌ Failed to complete purchase.", ephemeral=True)
                 

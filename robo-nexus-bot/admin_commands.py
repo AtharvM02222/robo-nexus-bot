@@ -14,8 +14,8 @@ class AdminCommands(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        from postgres_db import get_db
-        self.db = get_db()
+        from supabase_api import get_supabase_api
+        self.db = get_supabase_api()
     
     @app_commands.command(name="set_birthday_channel", description="[ADMIN] Set the channel for birthday announcements")
     @app_commands.describe(channel="The channel where birthday messages will be sent")
@@ -201,19 +201,12 @@ class AdminCommands(commands.Cog):
                 return
             
             # Get verification data from database
-            from postgres_db import get_db
-            db = get_db()
+            from supabase_api import get_supabase_api
+            db = get_supabase_api()
             
             # Get all user profiles (verified users)
             try:
-                cursor = db.get_cursor()
-                cursor.execute("""
-                    SELECT user_id, username, verification_status, verification_stage, created_at 
-                    FROM user_profiles 
-                    ORDER BY created_at DESC
-                """)
-                profiles = cursor.fetchall()
-                cursor.close()
+                profiles = db.get_all_user_profiles()
             except Exception as e:
                 logger.error(f"Error getting user profiles: {e}")
                 profiles = []
@@ -228,10 +221,10 @@ class AdminCommands(commands.Cog):
             pending_users = []
             
             for profile in profiles:
-                user_id = profile['user_id']
-                username = profile['username']
-                status = profile['verification_status']
-                stage = profile['verification_stage']
+                user_id = profile.get('user_id')
+                username = profile.get('username')
+                status = profile.get('verification_status', 'verified')  # Default to verified
+                stage = profile.get('verification_stage', 'complete')    # Default to complete
                 
                 # Try to get member from guild
                 try:
@@ -368,23 +361,29 @@ class AdminCommands(commands.Cog):
                 return
             
             # Delete all birthdays
-            cursor = self.db.get_cursor()
-            cursor.execute("DELETE FROM birthdays")
-            cursor.close()
+            success = self.db.delete_all_birthdays()
             
-            embed = discord.Embed(
-                title="✅ Birthdays Reset",
-                description=f"Successfully deleted **{count}** birthday(s) from the database.",
-                color=discord.Color.green()
-            )
-            embed.add_field(
-                name="⚠️ Warning",
-                value="This action cannot be undone. Users will need to re-register their birthdays.",
-                inline=False
-            )
-            
-            await interaction.followup.send(embed=embed)
-            logger.info(f"All birthdays reset by {interaction.user} - {count} deleted")
+            if success:
+                embed = discord.Embed(
+                    title="✅ Birthdays Reset",
+                    description=f"Successfully deleted all birthdays from the database.",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="⚠️ Warning",
+                    value="This action cannot be undone. Users will need to re-register their birthdays.",
+                    inline=False
+                )
+                
+                await interaction.followup.send(embed=embed)
+                logger.info(f"All birthdays reset by {interaction.user}")
+            else:
+                embed = discord.Embed(
+                    title="❌ Reset Failed",
+                    description="There was an error deleting birthdays from the database.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.error(f"Error in reset_birthdays: {e}")
@@ -418,24 +417,29 @@ class AdminCommands(commands.Cog):
             count = len(all_auctions)
             
             # Delete all auctions and bids
-            cursor = self.db.get_cursor()
-            cursor.execute("DELETE FROM bids")
-            cursor.execute("DELETE FROM auctions")
-            cursor.close()
+            success = self.db.delete_all_auctions()
             
-            embed = discord.Embed(
-                title="✅ Auctions Reset",
-                description=f"Successfully deleted **{count}** auction(s) and all bids from the database.",
-                color=discord.Color.green()
-            )
-            embed.add_field(
-                name="⚠️ Warning",
-                value="This action cannot be undone. All auction data has been permanently deleted.",
-                inline=False
-            )
-            
-            await interaction.followup.send(embed=embed)
-            logger.info(f"All auctions reset by {interaction.user} - {count} deleted")
+            if success:
+                embed = discord.Embed(
+                    title="✅ Auctions Reset",
+                    description=f"Successfully deleted all auctions and bids from the database.",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="⚠️ Warning",
+                    value="This action cannot be undone. All auction data has been permanently deleted.",
+                    inline=False
+                )
+                
+                await interaction.followup.send(embed=embed)
+                logger.info(f"All auctions reset by {interaction.user}")
+            else:
+                embed = discord.Embed(
+                    title="❌ Reset Failed",
+                    description="There was an error deleting auctions from the database.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.error(f"Error in reset_auctions: {e}")
@@ -519,24 +523,19 @@ class AdminCommands(commands.Cog):
                 return
             
             # Get counts before deletion
-            cursor = self.db.get_cursor()
+            all_birthdays = self.db.get_all_birthdays()
+            birthday_count = len(all_birthdays)
             
-            cursor.execute("SELECT COUNT(*) as count FROM birthdays")
-            birthday_count = cursor.fetchone()['count']
+            all_profiles = self.db.get_all_user_profiles()
+            profile_count = len(all_profiles)
             
-            cursor.execute("SELECT COUNT(*) as count FROM user_profiles")
-            profile_count = cursor.fetchone()['count']
+            all_auctions = self.db.get_all_auctions('active')
+            auction_count = len(all_auctions)
             
-            cursor.execute("SELECT COUNT(*) as count FROM welcome_data")
-            welcome_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM auctions")
-            auction_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM bids")
-            bid_count = cursor.fetchone()['count']
-            
-            cursor.close()
+            bids_count = 0
+            for auction in all_auctions:
+                bids = self.db.get_auction_bids(auction['id'])
+                bids_count += len(bids)
             
             # Create confirmation embed
             confirm_embed = discord.Embed(
@@ -546,12 +545,12 @@ class AdminCommands(commands.Cog):
             )
             confirm_embed.add_field(
                 name="❌ Will DELETE:",
-                value=f"• **{birthday_count}** birthdays\n• **{profile_count}** user profiles\n• **{welcome_count}** welcome data entries",
+                value=f"• **{birthday_count}** birthdays\n• **{profile_count}** user profiles",
                 inline=False
             )
             confirm_embed.add_field(
                 name="✅ Will KEEP:",
-                value=f"• **{auction_count}** auctions\n• **{bid_count}** bids",
+                value=f"• **{auction_count}** auctions\n• **{bids_count}** bids",
                 inline=False
             )
             confirm_embed.add_field(
@@ -577,36 +576,41 @@ class AdminCommands(commands.Cog):
                     pass
                 
                 # Perform deletion
-                cursor = self.db.get_cursor()
-                cursor.execute("DELETE FROM birthdays")
-                cursor.execute("DELETE FROM user_profiles")
-                cursor.execute("DELETE FROM welcome_data")
-                cursor.close()
+                birthday_success = self.db.delete_all_birthdays()
+                profile_success = self.db.delete_all_user_profiles()
                 
-                # Send success message
-                success_embed = discord.Embed(
-                    title="✅ Data Reset Complete",
-                    description="All data has been reset except auctions!",
-                    color=discord.Color.green()
-                )
-                success_embed.add_field(
-                    name="❌ Deleted:",
-                    value=f"• **{birthday_count}** birthdays\n• **{profile_count}** user profiles\n• **{welcome_count}** welcome data entries",
-                    inline=False
-                )
-                success_embed.add_field(
-                    name="✅ Kept:",
-                    value=f"• **{auction_count}** auctions\n• **{bid_count}** bids",
-                    inline=False
-                )
-                success_embed.add_field(
-                    name="🚀 Next Steps:",
-                    value="1. Remove members from server\n2. Add them back one at a time\n3. Each member will go through verification\n4. Bot will collect all their info",
-                    inline=False
-                )
-                
-                await interaction.followup.send(embed=success_embed)
-                logger.info(f"Data reset by {interaction.user} - kept {auction_count} auctions, deleted {birthday_count} birthdays, {profile_count} profiles")
+                if birthday_success and profile_success:
+                    # Send success message
+                    success_embed = discord.Embed(
+                        title="✅ Data Reset Complete",
+                        description="All data has been reset except auctions!",
+                        color=discord.Color.green()
+                    )
+                    success_embed.add_field(
+                        name="❌ Deleted:",
+                        value=f"• **{birthday_count}** birthdays\n• **{profile_count}** user profiles",
+                        inline=False
+                    )
+                    success_embed.add_field(
+                        name="✅ Kept:",
+                        value=f"• **{auction_count}** auctions\n• **{bids_count}** bids",
+                        inline=False
+                    )
+                    success_embed.add_field(
+                        name="🚀 Next Steps:",
+                        value="1. Remove members from server\n2. Add them back one at a time\n3. Each member will go through verification\n4. Bot will collect all their info",
+                        inline=False
+                    )
+                    
+                    await interaction.followup.send(embed=success_embed)
+                    logger.info(f"Data reset by {interaction.user} - kept {auction_count} auctions, deleted {birthday_count} birthdays, {profile_count} profiles")
+                else:
+                    error_embed = discord.Embed(
+                        title="❌ Reset Failed",
+                        description="There was an error deleting some data. Please check the logs.",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=error_embed)
                 
             except TimeoutError:
                 timeout_embed = discord.Embed(

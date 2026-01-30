@@ -279,8 +279,16 @@ class BirthdayCommands(commands.Cog):
             
             # Create birthday list
             birthday_list = []
-            for user_id, birthday_date in all_birthdays[:10]:  # Limit to 10 for display
+            for birthday_record in all_birthdays[:10]:  # Limit to 10 for display
                 try:
+                    # Extract user_id and birthday from the record
+                    if isinstance(birthday_record, dict):
+                        user_id = int(birthday_record['user_id'])
+                        birthday_date = birthday_record['birthday']
+                    else:
+                        # Handle tuple format (legacy)
+                        user_id, birthday_date = birthday_record
+                    
                     # Try to fetch member from Discord API (more reliable than get_member)
                     user = await interaction.guild.fetch_member(user_id)
                     if user:
@@ -291,7 +299,7 @@ class BirthdayCommands(commands.Cog):
                     continue
                 except Exception as e:
                     # Log other errors but continue
-                    logger.warning(f"Error fetching member {user_id}: {e}")
+                    logger.warning(f"Error processing birthday record {birthday_record}: {e}")
                     continue
             
             if not birthday_list:

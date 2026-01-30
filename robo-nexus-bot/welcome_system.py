@@ -905,13 +905,30 @@ class WelcomeSystem(commands.Cog):
                     "email": email,
                     "phone": phone,
                     "class_year": class_number,
-                    "birthday": profile.get("birthday"),
+                    "birthday": profile.get("birthday"),  # This should already be a string from DateParser
                     "social_links": json.dumps(social_links) if social_links else None,
                     "verification_status": "verified",
                     "verification_stage": "complete"
                 }
                 
-                self.save_user_profile(member.id, profile_data)
+                # Ensure birthday is a string if it exists
+                if profile_data["birthday"] and hasattr(profile_data["birthday"], 'strftime'):
+                    profile_data["birthday"] = profile_data["birthday"].strftime('%m-%d')
+                
+                # Save profile with error handling
+                profile_saved = self.save_user_profile(member.id, profile_data)
+                
+                if not profile_saved:
+                    logger.error(f"CRITICAL: Failed to save user profile for {member.display_name} ({member.id})")
+                    # Still complete verification but log the error
+                    error_embed = discord.Embed(
+                        title="⚠️ Verification Complete (with warning)",
+                        description="Your verification is complete, but there was an issue saving your profile. Please contact an admin.",
+                        color=discord.Color.orange()
+                    )
+                    await message.reply(embed=error_embed)
+                else:
+                    logger.info(f"✅ User profile saved successfully for {member.display_name}")
                 
                 # Remove from pending users
                 del self.pending_users[member.id]
@@ -1304,13 +1321,14 @@ class WelcomeSystem(commands.Cog):
         
         user_id = str(user.id)
         
-        profile = self.get_user_profile(int(user_id))
+        # Get profile from Supabase
+        profile = self.db.get_user_profile(user_id)
         if not profile:
             await interaction.followup.send(f"❌ No profile found for {user.display_name}.", ephemeral=True)
             return
         
         embed = discord.Embed(
-            title=f"👤 Profile: {profile.get('display_name', 'Unknown')}",
+            title=f"👤 Profile: {profile.get('display_name', user.display_name)}",
             color=discord.Color.blue()
         )
         
@@ -1320,20 +1338,29 @@ class WelcomeSystem(commands.Cog):
             inline=False
         )
         
-        # Check for birthday
-        try:
-# #             birthday = await self.bot.db_manager.get_birthday(user.id)
-            if birthday:
-                birthday_str = birthday.strftime("%B %d")
+        # Check for birthday in profile
+        birthday = profile.get('birthday')
+        if birthday:
+            try:
+                from date_parser import DateParser
+                formatted_birthday = DateParser.format_birthday(birthday)
                 embed.add_field(
                     name="🎂 Birthday",
-                    value=birthday_str,
+                    value=formatted_birthday,
                     inline=True
                 )
-            else:
+            except:
                 embed.add_field(
                     name="🎂 Birthday",
-                    value="Not registered",
+                    value=birthday,
+                    inline=True
+                )
+        else:
+            embed.add_field(
+                name="🎂 Birthday",
+                value="Not registered",
+                inline=True
+            )
                     inline=True
                 )
         except:

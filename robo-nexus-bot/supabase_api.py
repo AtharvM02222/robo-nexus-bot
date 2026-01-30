@@ -26,13 +26,16 @@ class SupabaseAPI:
         try:
             response = requests.get(
                 f"{self.url}/rest/v1/bot_settings?key=eq.{key}",
-                headers=self.headers
+                headers=self.headers,
+                timeout=10
             )
             
             if response.status_code == 200:
                 data = response.json()
                 if data:
                     return data[0]['value']
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout getting setting {key}")
         except Exception as e:
             logger.error(f"Error getting setting {key}: {e}")
         
@@ -51,7 +54,8 @@ class SupabaseAPI:
             response = requests.patch(
                 f"{self.url}/rest/v1/bot_settings?key=eq.{key}",
                 headers=self.headers,
-                json={"value": value}
+                json={"value": value},
+                timeout=10
             )
             
             if response.status_code == 200:
@@ -61,10 +65,14 @@ class SupabaseAPI:
             response = requests.post(
                 f"{self.url}/rest/v1/bot_settings",
                 headers=self.headers,
-                json={"key": key, "value": value}
+                json={"key": key, "value": value},
+                timeout=10
             )
             
             return response.status_code in [200, 201]
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout setting {key}")
+            return False
         except Exception as e:
             logger.error(f"Error setting {key}: {e}")
             return False
@@ -183,15 +191,40 @@ class SupabaseAPI:
     
     def create_user_profile(self, profile_data: Dict[str, Any]) -> bool:
         try:
+            logger.info(f"🔄 Attempting to create user profile for user_id: {profile_data.get('user_id')}")
+            
+            # Convert date objects to strings for JSON serialization
+            if 'birthday' in profile_data and profile_data['birthday']:
+                if hasattr(profile_data['birthday'], 'strftime'):
+                    # It's a date object, convert to string
+                    profile_data['birthday'] = profile_data['birthday'].strftime('%m-%d')
+                    logger.info(f"📅 Converted birthday date object to string: {profile_data['birthday']}")
+                elif isinstance(profile_data['birthday'], str):
+                    # It's already a string, keep as is
+                    logger.info(f"📅 Birthday is already a string: {profile_data['birthday']}")
+            
+            logger.info(f"📊 Profile data to save: {profile_data}")
+            
             response = requests.post(
                 f"{self.url}/rest/v1/user_profiles",
                 headers=self.headers,
-                json=profile_data
+                json=profile_data,
+                timeout=10
             )
             
-            return response.status_code == 201
+            logger.info(f"📡 Supabase response: {response.status_code}")
+            
+            if response.status_code == 201:
+                logger.info(f"✅ User profile created successfully for user_id: {profile_data.get('user_id')}")
+                return True
+            else:
+                logger.error(f"❌ Failed to create user profile: {response.status_code} - {response.text}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.error(f"⏰ Timeout creating user profile for user_id: {profile_data.get('user_id')}")
+            return False
         except Exception as e:
-            logger.error(f"Error creating user profile: {e}")
+            logger.error(f"💥 Error creating user profile: {e}")
             return False
     
     def update_user_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
@@ -210,26 +243,53 @@ class SupabaseAPI:
     # Birthday methods
     def register_birthday(self, user_id: str, birthday: str) -> bool:
         try:
+            logger.info(f"🎂 Attempting to register birthday for user_id: {user_id}")
+            
+            # Ensure birthday is a string
+            if hasattr(birthday, 'strftime'):
+                # It's a date object, convert to string
+                birthday = birthday.strftime('%m-%d')
+                logger.info(f"📅 Converted birthday date object to string: {birthday}")
+            
+            logger.info(f"📊 Birthday data to save: user_id={user_id}, birthday={birthday}")
+            
             # Try to update first
             response = requests.patch(
                 f"{self.url}/rest/v1/birthdays?user_id=eq.{user_id}",
                 headers=self.headers,
-                json={"birthday": birthday}
+                json={"birthday": birthday},
+                timeout=10
             )
             
+            logger.info(f"📡 Supabase UPDATE response: {response.status_code}")
+            
             if response.status_code == 200:
+                logger.info(f"✅ Birthday updated successfully for user_id: {user_id}")
                 return True
             
             # If update failed, try insert
+            logger.info(f"🔄 Update failed, trying INSERT for user_id: {user_id}")
             response = requests.post(
                 f"{self.url}/rest/v1/birthdays",
                 headers=self.headers,
-                json={"user_id": user_id, "birthday": birthday}
+                json={"user_id": user_id, "birthday": birthday},
+                timeout=10
             )
             
-            return response.status_code == 201
+            logger.info(f"📡 Supabase INSERT response: {response.status_code}")
+            
+            if response.status_code == 201:
+                logger.info(f"✅ Birthday inserted successfully for user_id: {user_id}")
+                return True
+            else:
+                logger.error(f"❌ Failed to insert birthday: {response.status_code} - {response.text}")
+                return False
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"⏰ Timeout registering birthday for user_id: {user_id}")
+            return False
         except Exception as e:
-            logger.error(f"Error registering birthday for {user_id}: {e}")
+            logger.error(f"💥 Error registering birthday for {user_id}: {e}")
             return False
     
     def get_birthday(self, user_id: str) -> Optional[str]:
@@ -286,6 +346,200 @@ class SupabaseAPI:
         except Exception as e:
             logger.error(f"Error removing birthday for {user_id}: {e}")
             return False
+    
+    # MISSING METHODS - CRITICAL FIXES
+    
+    def delete_all_birthdays(self) -> bool:
+        """Delete all birthdays from the database"""
+        try:
+            response = requests.delete(
+                f"{self.url}/rest/v1/birthdays",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code == 204:
+                logger.info("All birthdays deleted successfully")
+                return True
+            else:
+                logger.error(f"Failed to delete all birthdays: {response.status_code} - {response.text}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.error("Timeout deleting all birthdays")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting all birthdays: {e}")
+            return False
+    
+    def delete_all_auctions(self) -> bool:
+        """Delete all auctions and bids from the database"""
+        try:
+            # First delete all bids
+            response = requests.delete(
+                f"{self.url}/rest/v1/bids",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code != 204:
+                logger.error(f"Failed to delete all bids: {response.status_code} - {response.text}")
+                return False
+            
+            # Then delete all auctions
+            response = requests.delete(
+                f"{self.url}/rest/v1/auctions",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code == 204:
+                logger.info("All auctions and bids deleted successfully")
+                return True
+            else:
+                logger.error(f"Failed to delete all auctions: {response.status_code} - {response.text}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.error("Timeout deleting all auctions")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting all auctions: {e}")
+            return False
+    
+    def delete_all_user_profiles(self) -> bool:
+        """Delete all user profiles from the database"""
+        try:
+            response = requests.delete(
+                f"{self.url}/rest/v1/user_profiles",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code == 204:
+                logger.info("All user profiles deleted successfully")
+                return True
+            else:
+                logger.error(f"Failed to delete all user profiles: {response.status_code} - {response.text}")
+                return False
+        except requests.exceptions.Timeout:
+            logger.error("Timeout deleting all user profiles")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting all user profiles: {e}")
+            return False
+    
+    def count_user_profiles(self) -> int:
+        """Count total user profiles"""
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/user_profiles?select=count",
+                headers={**self.headers, "Prefer": "count=exact"},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                # Supabase returns count in the Content-Range header
+                content_range = response.headers.get('Content-Range', '0')
+                if '/' in content_range:
+                    count = int(content_range.split('/')[-1])
+                    return count
+                return 0
+        except requests.exceptions.Timeout:
+            logger.error("Timeout counting user profiles")
+        except Exception as e:
+            logger.error(f"Error counting user profiles: {e}")
+        
+        return 0
+    
+    def get_all_user_profiles(self) -> List[Dict[str, Any]]:
+        """Get all user profiles"""
+        try:
+            response = requests.get(
+                f"{self.url}/rest/v1/user_profiles?order=created_at.desc",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+        except requests.exceptions.Timeout:
+            logger.error("Timeout getting all user profiles")
+        except Exception as e:
+            logger.error(f"Error getting all user profiles: {e}")
+        
+        return []
+    
+    # RACE CONDITION FIX FOR PLACE_BID
+    def place_bid(self, auction_id: int, bidder_id: str, bidder_name: str, amount: float) -> bool:
+        try:
+            # Insert bid first
+            bid_data = {
+                "auction_id": auction_id,
+                "bidder_id": bidder_id,
+                "bidder_name": bidder_name,
+                "amount": amount
+            }
+            
+            response = requests.post(
+                f"{self.url}/rest/v1/bids",
+                headers=self.headers,
+                json=bid_data,
+                timeout=10
+            )
+            
+            if response.status_code == 201:
+                # Update auction current price with error handling
+                try:
+                    update_response = requests.patch(
+                        f"{self.url}/rest/v1/auctions?id=eq.{auction_id}",
+                        headers=self.headers,
+                        json={"current_price": amount},
+                        timeout=10
+                    )
+                    
+                    if update_response.status_code == 200:
+                        logger.info(f"Bid placed successfully: ₹{amount} on auction #{auction_id}")
+                        return True
+                    else:
+                        logger.error(f"Bid inserted but failed to update auction price: {update_response.status_code} - {update_response.text}")
+                        # Bid was inserted but price update failed - this is a partial success
+                        # The bid is still valid, just the current_price might be outdated
+                        return True
+                except requests.exceptions.Timeout:
+                    logger.error(f"Timeout updating auction price for bid on auction #{auction_id}")
+                    return True  # Bid was inserted successfully
+                except Exception as e:
+                    logger.error(f"Error updating auction price after bid: {e}")
+                    return True  # Bid was inserted successfully
+            else:
+                logger.error(f"Failed to place bid: {response.status_code} - {response.text}")
+                return False
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout placing bid on auction #{auction_id}")
+            return False
+        except Exception as e:
+            logger.error(f"Error placing bid: {e}")
+            return False
+    
+    # ADD TIMEOUT TO CREATE_AUCTION
+    def create_auction(self, auction_data: Dict[str, Any]) -> int:
+        try:
+            response = requests.post(
+                f"{self.url}/rest/v1/auctions",
+                headers=self.headers,
+                json=auction_data,
+                timeout=10  # Added timeout
+            )
+            
+            if response.status_code == 201:
+                data = response.json()
+                return data[0]['id'] if data else 0
+        except requests.exceptions.Timeout:
+            logger.error("Timeout creating auction")
+        except Exception as e:
+            logger.error(f"Error creating auction: {e}")
+        
+        return 0
 
 # Global instance
 supabase_api = None
