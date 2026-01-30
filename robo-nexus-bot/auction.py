@@ -139,6 +139,8 @@ class AuctionSystem(commands.Cog):
     async def auction_list(self, interaction: discord.Interaction):
         """List all active auctions from PostgreSQL"""
         try:
+            await interaction.response.defer()
+            
             # Get auctions from PostgreSQL database
             auctions = self.db.get_all_auctions('active')
             
@@ -150,7 +152,7 @@ class AuctionSystem(commands.Cog):
                     description="No active auctions found.",
                     color=0x808080
                 )
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
                 return
             
             embed = discord.Embed(
@@ -171,11 +173,14 @@ class AuctionSystem(commands.Cog):
             if len(auctions) > 10:
                 embed.set_footer(text=f"Showing first 10 of {len(auctions)} auctions")
             
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.error(f"Error listing auctions: {e}", exc_info=True)
-            await interaction.response.send_message("❌ Failed to load auctions.", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Failed to load auctions.", ephemeral=True)
+            except:
+                pass
     
     @app_commands.command(name="auction_view", description="View auction details")
     @app_commands.describe(auction_id="ID of the auction")

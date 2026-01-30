@@ -74,11 +74,14 @@ class SupabaseAPI:
         try:
             response = requests.get(
                 f"{self.url}/rest/v1/auctions?status=eq.{status}",
-                headers=self.headers
+                headers=self.headers,
+                timeout=10  # 10 second timeout
             )
             
             if response.status_code == 200:
                 return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout getting auctions")
         except Exception as e:
             logger.error(f"Error getting auctions: {e}")
         
@@ -164,12 +167,15 @@ class SupabaseAPI:
         try:
             response = requests.get(
                 f"{self.url}/rest/v1/user_profiles?user_id=eq.{user_id}",
-                headers=self.headers
+                headers=self.headers,
+                timeout=10  # 10 second timeout
             )
             
             if response.status_code == 200:
                 data = response.json()
                 return data[0] if data else None
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout getting user profile {user_id}")
         except Exception as e:
             logger.error(f"Error getting user profile {user_id}: {e}")
         

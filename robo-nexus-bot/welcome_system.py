@@ -743,17 +743,23 @@ class WelcomeSystem(commands.Cog):
             self.pending_users[member.id]["profile"]["birthday"] = birthday_date
             self.pending_users[member.id]["stage"] = self.STAGE_EMAIL
             
-            # Register birthday in the birthday system
+            # Register birthday in BOTH the birthday system AND user profile
             try:
+                # Save to birthdays table
                 from database import add_birthday
-                success = add_birthday(str(member.id), birthday_date)
+                birthday_success = add_birthday(str(member.id), birthday_date)
+                
+                # Also save to user_profiles table (update the pending profile)
+                # This will be saved when the profile is completed
                 formatted_date = DateParser.format_birthday(birthday_date)
-                if success: logger.info(f"Birthday registered for {member.display_name} during verification: {formatted_date}")
+                
+                if birthday_success: 
+                    logger.info(f"Birthday registered for {member.display_name} during verification: {formatted_date}")
                 
                 # Confirm birthday registration
                 confirm_embed = discord.Embed(
                     title="🎉 Birthday Registered!",
-                    description=f"Your birthday has been set to **{formatted_date}**",
+                    description=f"Your birthday has been set to **{formatted_date}**\n\nThe Robo Nexus community will celebrate with you on your special day! 🎂",
                     color=discord.Color.green()
                 )
                 await message.reply(embed=confirm_embed, delete_after=30)
@@ -942,7 +948,7 @@ class WelcomeSystem(commands.Cog):
                 
                 embed.add_field(
                     name="🚀 What's Next?",
-                    value="• Explore all server channels\n• Join your classmates\n• Participate in robotics discussions!\n• Register your birthday with `/register_birthday`",
+                    value="• Explore all server channels\n• Join your classmates\n• Participate in robotics discussions!",
                     inline=False
                 )
                 
@@ -1239,21 +1245,68 @@ class WelcomeSystem(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
+    @app_commands.command(name="debug_data", description="[ADMIN] Check database data")
+    @app_commands.default_permissions(administrator=True)
+    async def debug_data(self, interaction: discord.Interaction):
+        """Debug command to check database data"""
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.followup.send("❌ Administrator permissions required.", ephemeral=True)
+            return
+        
+        try:
+            # Check auctions
+            auctions = self.db.get_all_auctions('active')
+            
+            # Check user profiles
+            profile = self.db.get_user_profile(str(interaction.user.id))
+            
+            # Check birthdays
+            birthdays = self.db.get_all_birthdays()
+            
+            embed = discord.Embed(
+                title="🔍 Database Debug Info",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📊 Data Counts",
+                value=f"**Auctions:** {len(auctions)}\n**Birthdays:** {len(birthdays)}\n**Your Profile:** {'✅ Found' if profile else '❌ Not found'}",
+                inline=False
+            )
+            
+            if auctions:
+                auction_names = [a.get('product_name', 'Unknown') for a in auctions[:3]]
+                embed.add_field(
+                    name="🏷️ Sample Auctions",
+                    value="\n".join(auction_names),
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.followup.send(f"❌ Debug error: {str(e)}", ephemeral=True)
+
     @app_commands.command(name="view_profile", description="[ADMIN] View a user's profile")
     @app_commands.describe(user="User whose profile to view")
     @app_commands.default_permissions(administrator=True)
     async def view_profile(self, interaction: discord.Interaction, user: discord.Member):
         """View a user's complete profile"""
         
+        await interaction.response.defer(ephemeral=True)
+        
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Administrator permissions required.", ephemeral=True)
+            await interaction.followup.send("❌ Administrator permissions required.", ephemeral=True)
             return
         
         user_id = str(user.id)
         
         profile = self.get_user_profile(int(user_id))
         if not profile:
-            await interaction.response.send_message(f"❌ No profile found for {user.display_name}.", ephemeral=True)
+            await interaction.followup.send(f"❌ No profile found for {user.display_name}.", ephemeral=True)
             return
         
         embed = discord.Embed(
@@ -1689,6 +1742,10 @@ class WelcomeSystem(commands.Cog):
         
         if success:
             # Save complete profile to PostgreSQL
+            # Get existing birthday if any
+            from database import get_birthday
+            existing_birthday = get_birthday(user.id)
+            
             profile_data = {
                 "user_id": str(user.id),
                 "username": str(user),
@@ -1696,7 +1753,7 @@ class WelcomeSystem(commands.Cog):
                 "email": email,
                 "phone": formatted_phone,
                 "class_year": str(class_number),
-                "birthday": None,
+                "birthday": existing_birthday,  # Use existing birthday instead of None
                 "social_links": json.dumps(parsed_links) if parsed_links else None,
                 "verification_status": "verified",
                 "verification_stage": "complete"

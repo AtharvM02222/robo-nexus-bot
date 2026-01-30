@@ -50,8 +50,21 @@ class BirthdayCommands(commands.Cog):
                 await interaction.followup.send(embed=error_embed)
                 return
             
-            # Register the birthday
+            # Register the birthday in birthdays table
             success = self.db.add_birthday(interaction.user.id, birthday)
+            
+            # Also update user profile if it exists
+            try:
+                from supabase_api import get_supabase_api
+                supabase = get_supabase_api()
+                profile = supabase.get_user_profile(str(interaction.user.id))
+                if profile:
+                    # Update the birthday in user profile too
+                    supabase.update_user_profile(str(interaction.user.id), {"birthday": birthday})
+                    logger.info(f"Updated birthday in user profile for {interaction.user.display_name}")
+            except Exception as e:
+                logger.error(f"Error updating user profile birthday: {e}")
+                # Don't fail the command if profile update fails
             
             if success:
                 # Success message
